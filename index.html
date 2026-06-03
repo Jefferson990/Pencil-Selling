@@ -3,6 +3,58 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+    (function() {
+        // Dynamische Tablet-Skalierung
+        // iPad 9.7" → ~768x1024px  → scale 1.3
+        // Samsung 10.9" → ~800x1280px → scale 1.25
+        // Surface 11" → ~900x1440px → scale 1.2
+        function applyScale() {
+            var w = window.screen.width;
+            var h = window.screen.height;
+            var dpr = window.devicePixelRatio || 1;
+            var isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
+            // Nur auf Touch-Geräten skalieren (Tablets/Phones, nicht Desktop)
+            if (!isTouch) return;
+
+            // Kleinste Seite = Gerätebreite im Portrait
+            var shortSide = Math.min(w, h);
+            var longSide  = Math.max(w, h);
+
+            // Physische Zoll schätzen via DPR
+            // iPad 9.7" → 768px @ 2x → physisch ~384 CSS-px breit
+            // Samsung 10.9" → 800px @ 2x → ~400 CSS-px
+            // Surface 11" → 900px @ 2x → ~450 CSS-px
+            var cssShort = shortSide / dpr;
+
+            var scale = 1.0;
+            if      (cssShort <= 420) scale = 1.0;  // Phone → nicht skalieren
+            else if (cssShort <= 430) scale = 1.25; // iPad 9.7"
+            else if (cssShort <= 470) scale = 1.2;  // Samsung 10.9"
+            else if (cssShort <= 520) scale = 1.15; // Surface 11"
+            else                      scale = 1.1;  // Größere Tablets
+
+            if (scale <= 1.0) return; // nichts zu tun
+
+            // Viewport-Width so setzen dass Inhalt größer wirkt
+            var targetWidth = Math.round(shortSide / scale);
+            var vp = document.querySelector('meta[name="viewport"]');
+            if (vp) {
+                vp.setAttribute('content',
+                    'width=' + targetWidth +
+                    ', initial-scale=' + scale.toFixed(2) +
+                    ', maximum-scale=3.0, user-scalable=yes'
+                );
+            }
+        }
+        applyScale();
+        // Neu berechnen wenn Orientierung wechselt
+        window.addEventListener('orientationchange', function() {
+            setTimeout(applyScale, 150);
+        });
+    })();
+    </script>
 
     <!-- ===== PWA / iOS Vollbild ===== -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -3416,18 +3468,79 @@ html.device-android-tablet .sit-aside-panel {
             Print: '<polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect>'
         };
 
-        // ===== Pencil Analytics (local, DSGVO-safe: no content stored) =====
+        // ===== Pencil Analytics (local + Firebase Sync) =====
         const ANALYTICS_STORAGE_KEY = 'pencil_analytics_v1';
         const STATS_PASSWORD = (()=>{try{return localStorage.getItem('ps_stats_pw')||'telekom2026';}catch(e){return'telekom2026';}})();
 
-        const loadAnalyticsRows = () => {
-            try { return JSON.parse(localStorage.getItem(ANALYTICS_STORAGE_KEY) || '[]'); } catch(e){ return []; }
+        // ── Firebase Stats Config (pencil-selling-stats) ──
+        const STATS_FB_CONFIG = {
+            apiKey: "AIzaSyCgKvoW6mB_heUkQDpeZMFE-0CQSUFuN0g",
+            authDomain: "pencil-selling-stats-2f86e.firebaseapp.com",
+            projectId: "pencil-selling-stats-2f86e",
+            storageBucket: "pencil-selling-stats-2f86e.firebasestorage.app",
+            messagingSenderId: "166126857606",
+            appId: "1:166126857606:web:0b29898ae53a8c3aaa1007"
         };
-        const saveAnalyticsRows = (rows) => {
-            localStorage.setItem(ANALYTICS_STORAGE_KEY, JSON.stringify(rows));
+
+        // ── Firebase Stats DB singleton ──
+        const getStatsDb = () => {
+            try {
+                if (window.__statsDb) return window.__statsDb;
+                const existing = window.firebase?.apps?.find(a => a.name === 'stats');
+                const app = existing
+                    ? existing
+                    : window.firebase.initializeApp(STATS_FB_CONFIG, 'stats');
+                window.__statsDb = window.firebase.firestore(app);
+                return window.__statsDb;
+            } catch(e) {
+                console.warn('Stats Firebase init failed:', e);
+                return null;
+            }
         };
-        const clearAnalyticsRows = () => {
-            localStorage.removeItem(ANALYTICS_STORAGE_KEY);
+
+        // ── Push einzelne Zeile zu Firebase (fire & forget) ──
+        const pushRowToFirebase = async (row) => {
+            try {
+                const db = getStatsDb();
+                if (!db) return;
+                await db.collection('analytics').doc(row.id).set({
+                    ...row,
+                    ts: row.ts,
+                    syncedAt: Date.now()
+                });
+            } catch(e) {
+                console.warn('Firebase push failed:', e);
+            }
+        };
+
+        // ── Alle Zeilen von Firebase laden (für Admin) ──
+        const loadRowsFromFirebase = async () => {
+            try {
+                const db = getStatsDb();
+                if (!db) return null;
+                const snap = await db.collection('analytics')
+                    .orderBy('ts', 'desc')
+                    .limit(2000)
+                    .get();
+                return snap.docs.map(d => d.data());
+            } catch(e) {
+                console.warn('Firebase load failed:', e);
+                return null;
+            }
+        };
+
+        // ── Lokal (nur noch als temporärer Puffer falls Firebase kurz offline) ──
+        const loadAnalyticsRows = () => { return []; }; // Deaktiviert – nur Firebase
+        const saveAnalyticsRows = (rows) => {}; // Deaktiviert – nur Firebase
+        const clearAnalyticsRows = async () => {
+            try {
+                const db = getStatsDb();
+                if (!db) return;
+                const snap = await db.collection('analytics').get();
+                const batch = db.batch();
+                snap.docs.forEach(d => batch.delete(d.ref));
+                await batch.commit();
+            } catch(e) { console.warn('Firebase clear failed:', e); }
         };
 
         // ─── Activity thresholds (anti-manipulation) ─────────────────────────
@@ -3568,9 +3681,8 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
         };
 
         const appendAnalyticsRow = (row) => {
-            const rows = loadAnalyticsRows();
-            rows.push(row);
-            saveAnalyticsRows(rows);
+            // Nur Firebase – kein localStorage
+            pushRowToFirebase(row);
             return row;
         };
 
@@ -3646,17 +3758,15 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
             return header.trimEnd() + '\n' + lines.join('\n');
         };
 
-        const exportAnalyticsJSON = () => {
-            const rows = loadAnalyticsRows();
+        const exportAnalyticsJSON = async () => {
+            const rows = (await loadRowsFromFirebase()) || [];
             const ym = new Date().toISOString().slice(0,7);
             downloadTextFile(`Analytics_${ym}.json`, JSON.stringify(rows, null, 2), 'application/json');
         };
-        const exportAnalyticsCSV = () => {
-            const rows = loadAnalyticsRows();
+        const exportAnalyticsCSV = async () => {
+            const rows = (await loadRowsFromFirebase()) || [];
             const ym = new Date().toISOString().slice(0,7);
-            // 1) compact summary (recommended)
             downloadTextFile(`Analytics_${ym}_summary.csv`, rowsToCSV_Summary(rows), 'text/csv');
-            // 2) long format (perfect for Pivot by field)
             downloadTextFile(`Analytics_${ym}_fields.csv`, rowsToCSV_Fields(rows), 'text/csv');
         };
 
@@ -5017,6 +5127,26 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
             const [prevHD,     setPrevHD]     = useState('');
             const [prevStream, setPrevStream] = useState('');
             const [selectedCol, setSelectedCol] = useState(null);
+            // Custom Preise: { 'o2_s_0': 9.99, 'telekom_m_1': 7.50, ... }
+            const [customPrices, setCustomPrices] = useState({});
+            const [editingCell, setEditingCell] = useState(null); // { prov, col, row, key }
+            const [editValue, setEditValue] = useState('');
+            const longPressTimer = React.useRef(null);
+            const startLongPress = () => {};
+            const cancelLongPress = () => {};
+            const confirmEdit = () => {
+                if (!editingCell) return;
+                const val = parseFloat(String(editValue).replace(',','.'));
+                if (!isNaN(val) && val >= 0) {
+                    setCustomPrices(prev => ({ ...prev, [editingCell.key]: val }));
+                }
+                setEditingCell(null);
+            };
+            const getPrice = (prov, colId, rowIdx, original) => {
+                const key = `${prov}_${colId}_${rowIdx}`;
+                return customPrices[key] ?? original;
+            };
+            const resetPrices = () => { setCustomPrices({}); setEditingCell(null); };
 
             if (!isOpen) return null;
 
@@ -5076,9 +5206,20 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
             const pd = providerData[provider];
             const activeCol = selectedCol || pd.recommended;
             const prevTotal = parse(prevTV) + parse(prevHD) + parse(prevStream);
-            const recTotal  = pd.totals[activeCol];
+
+            // Dynamische Totals (berücksichtigt custom Preise)
+            const dynamicTotals = {};
+            pd.cols.forEach(col => {
+                dynamicTotals[col.id] = pd.rows.reduce((sum, row, ri) => {
+                    if (!col.checks[ri]) return sum;
+                    return sum + getPrice(provider, col.id, ri, row.tarif[col.id]);
+                }, 0);
+            });
+
+            const recTotal  = dynamicTotals[activeCol];
             const recCol    = pd.cols.find(c => c.id === activeCol);
             const ersparnis = prevTotal > 0 ? (prevTotal - recTotal) : null;
+            const hasCustom = Object.keys(customPrices).some(k => k.startsWith(provider+'_'));
             const providers = [{id:'o2',label:'o2 TV',color:'#003CA6'},{id:'telekom',label:'MagentaTV',color:'#E2007A'},{id:'vodafone',label:'Giga TV',color:'#E50000'}];
 
             return (
@@ -5093,12 +5234,15 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                         </div>
                         <div>
                           <div style={{fontSize:'17px',fontWeight:900,color:'#0b1e42',letterSpacing:'-0.02em'}}>TV Preisvergleich</div>
-                          <div style={{fontSize:'11px',color:'#94a3b8',fontWeight:600}}>Anbieter vergleichen & Tarif auswählen</div>
+                          <div style={{fontSize:'11px',color:'#94a3b8',fontWeight:600}}>Anbieter vergleichen · <span style={{color:'#7c3aed'}}>Lang drücken auf Preis zum Anpassen</span></div>
                         </div>
                       </div>
-                      <button onClick={onClose} style={{width:'36px',height:'36px',borderRadius:'50%',border:'1px solid #e2e8f0',background:'#f8fafc',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#64748b'}}>
-                        <Icon d={ICONS.X} size={16}/>
-                      </button>
+                      <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                        {hasCustom && <button onClick={resetPrices} style={{fontSize:'10px',padding:'5px 10px',borderRadius:'7px',background:'#fef2f2',border:'1px solid #fecaca',color:'#dc2626',cursor:'pointer',fontWeight:700}}>↺ Preise zurücksetzen</button>}
+                        <button onClick={onClose} style={{width:'36px',height:'36px',borderRadius:'50%',border:'1px solid #e2e8f0',background:'#f8fafc',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#64748b'}}>
+                          <Icon d={ICONS.X} size={16}/>
+                        </button>
+                      </div>
                     </div>
 
                     {/* PROVIDER TABS */}
@@ -5171,23 +5315,53 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                                 <div style={{fontSize:'13px',fontWeight:900,color:isActive ? pd.color : '#1e293b',lineHeight:1.2}}>{col.label}</div>
                                 {col.sub && <div style={{fontSize:'10px',color:'#64748b',fontWeight:600,marginTop:'2px'}}>{col.sub}</div>}
                               </div>
-                              <div style={{display:'flex',flexDirection:'column',gap:'5px',flex:1}}>
-                                {pd.rows.map((row,ri) => (
-                                  <div key={ri} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'5px 8px',borderRadius:'7px',background:col.checks[ri] ? (isActive ? pd.color+'15' : '#f8fafc') : '#f8fafc'}}>
-                                    {col.checks[ri] ? (
-                                      <>
-                                        <span style={{fontSize:'13px',fontWeight:900,color:pd.color}}>✓</span>
-                                        <span style={{fontSize:'10px',fontWeight:700,color:'#475569'}}>{row.tarif[col.id] > 0 ? row.tarif[col.id].toFixed(2)+' €' : 'inkl.'}</span>
-                                      </>
-                                    ) : (
-                                      <span style={{fontSize:'15px',color:'#cbd5e1',margin:'0 auto'}}>—</span>
-                                    )}
-                                  </div>
-                                ))}
+                                  <div style={{display:'flex',flexDirection:'column',gap:'5px',flex:1}}>
+                                    {pd.rows.map((row,ri) => {
+                                      const origPrice = row.tarif[col.id];
+                                      const custPrice = getPrice(provider, col.id, ri, origPrice);
+                                      const cellKey = `${provider}_${col.id}_${ri}`;
+                                      const isEditing = editingCell && editingCell.key === cellKey;
+                                      const isCustom = customPrices[cellKey] !== undefined;
+                                      return (
+                                        <div key={ri} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'5px 8px',borderRadius:'7px',background:col.checks[ri]?(isActive?pd.color+'15':'#f8fafc'):'#f8fafc'}}>
+                                          {col.checks[ri] ? (
+                                            isEditing ? (
+                                              <div style={{display:'flex',gap:'4px',width:'100%',alignItems:'center'}}>
+                                                <input autoFocus type="text" inputMode="decimal" value={editValue}
+                                                  onChange={e=>setEditValue(e.target.value)}
+                                                  onKeyDown={e=>{ if(e.key==='Enter') confirmEdit(); if(e.key==='Escape') setEditingCell(null); }}
+                                                  style={{flex:1,border:'1.5px solid '+pd.color,borderRadius:'5px',padding:'2px 5px',fontSize:'12px',fontWeight:700,textAlign:'center',outline:'none'}}/>
+                                                <button onClick={confirmEdit} style={{background:pd.color,color:'white',border:'none',borderRadius:'5px',padding:'2px 7px',fontSize:'11px',fontWeight:800,cursor:'pointer'}}>✓</button>
+                                              </div>
+                                            ) : (
+                                              <>
+                                                <span style={{fontSize:'13px',fontWeight:900,color:pd.color}}>✓</span>
+                                                <div style={{display:'flex',alignItems:'center',gap:'4px'}}>
+                                                  <span style={{fontSize:'10px',fontWeight:700,color:isCustom?pd.color:'#475569'}}>
+                                                    {custPrice > 0 ? custPrice.toFixed(2)+' €' : 'inkl.'}
+                                                  </span>
+                                                  <button
+                                                    onClick={e=>{ e.stopPropagation(); setEditingCell({prov:provider,colId:col.id,rowIdx:ri,key:cellKey}); setEditValue(String(custPrice)); }}
+                                                    style={{width:'16px',height:'16px',borderRadius:'4px',background:isCustom?pd.color+'20':'#f1f5f9',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0,flexShrink:0}}
+                                                    title="Preis anpassen">
+                                                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={isCustom?pd.color:'#94a3b8'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                                    </svg>
+                                                  </button>
+                                                </div>
+                                              </>
+                                            )
+                                          ) : (
+                                            <span style={{fontSize:'15px',color:'#cbd5e1',margin:'0 auto'}}>—</span>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
                               </div>
                               <div style={{padding:'10px',borderRadius:'10px',background:isActive ? pd.color : '#f1f5f9',textAlign:'center',marginTop:'auto'}}>
                                 <div style={{fontSize:'9px',fontWeight:800,color:isActive ? 'rgba(255,255,255,0.7)' : '#94a3b8',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:'2px'}}>mtl. gesamt</div>
-                                <div style={{fontSize:'17px',fontWeight:900,color:isActive ? 'white' : '#334155'}}>{pd.totals[col.id].toFixed(2)} €</div>
+                                <div style={{fontSize:'17px',fontWeight:900,color:isActive ? 'white' : '#334155'}}>{dynamicTotals[col.id].toFixed(2)} €</div>
                               </div>
                             </button>
                           );
@@ -6295,286 +6469,428 @@ const highResHTML = buildHighResBundleHTML(d);
                 return s;
             };
 
-            const [range, setRange] = useState('7');
-            const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'mitarbeiter' | 'vorgaenge'
-            const rows = useMemo(() => loadAnalyticsRows().slice().reverse(), [isOpen]);
+            const [fbRows, setFbRows] = useState(null);
+            const [fbLoading, setFbLoading] = useState(false);
+            const [selectedAgent, setSelectedAgent] = useState('__all__');
+            const [activeTab, setActiveTab] = useState('uebersicht');
+            const [range, setRange] = useState('31');
 
+            useEffect(() => {
+                if (!isOpen) return;
+                setFbLoading(true);
+                loadRowsFromFirebase().then(data => { setFbRows(data); setFbLoading(false); });
+            }, [isOpen]);
+
+            const rows = useMemo(() => {
+                if (!fbRows) return [];
+                return [...fbRows].sort((a,b) => new Date(b.ts) - new Date(a.ts));
+            }, [fbRows]);
+
+            // Alle Agenten aus Firebase
+            const allAgents = useMemo(() =>
+                [...new Set(rows.map(r => resolveUserName(r.user)).filter(u => u && u !== '–'))].sort()
+            , [rows]);
+
+            // Zeitraum-Filter
             const filtered = useMemo(() => {
-                if (!rows.length) return [];
-                if (range === 'all') return rows;
+                const base = selectedAgent === '__all__' ? rows : rows.filter(r => resolveUserName(r.user) === selectedAgent);
+                if (range === 'all') return base;
                 const days = parseInt(range, 10);
                 const now = Date.now();
                 const maxAge = days * 24 * 60 * 60 * 1000;
-                return rows.filter(r => {
-                    const t = new Date(r.ts).getTime();
-                    return Number.isFinite(t) && (now - t) <= maxAge;
-                });
-            }, [rows, range]);
+                return base.filter(r => { const t = new Date(r.ts).getTime(); return Number.isFinite(t) && (now-t) <= maxAge; });
+            }, [rows, selectedAgent, range]);
 
-            const summary = useMemo(() => {
-                const agg = {};
-                filtered.forEach(r => {
-                    const u = resolveUserName(r.user) || '(Unbekannt)';
-                    if (!agg[u]) agg[u] = { total: 0, anfrage: 0, angebot: 0, abschluss: 0, abgebrochen: 0, strokes: 0, explainSum: 0, scoreSum: 0 };
-                    agg[u].total += 1;
-                    if (r.result === 'Anfrage')    agg[u].anfrage    += 1;
-                    if (r.result === 'Angebot')    agg[u].angebot    += 1;
-                    if (r.result === 'Abschluss')  agg[u].abschluss  += 1;
-                    if (r.result === 'Abgebrochen') agg[u].abgebrochen += 1;
-                    const cs = r.canvasStats || {};
-                    const csEntries = Object.entries(cs).filter(([k]) => k !== 'skip_reason');
-                    let rowUsed = 0; let rowStrokes = 0;
-                    csEntries.forEach(([_, v]) => { if (v && v.used) rowUsed += 1; if (v && Number.isFinite(v.strokes)) rowStrokes += v.strokes; });
-                    const rowExplain = csEntries.length ? (rowUsed / csEntries.length) : 0;
-                    agg[u].explainSum += rowExplain;
-                    agg[u].strokes += rowStrokes;
-                    agg[u].scoreSum += rowStrokes;
-                });
-                return agg;
-            }, [filtered]);
+            const IST_KEYS = [
+                { key:'sit_Kundenname',      label:'Kundenname' },
+                { key:'sit_Rufnummer',       label:'Rufnummer' },
+                { key:'sit_Anbieter',        label:'Anbieter' },
+                { key:'sit_Hardware',        label:'Hardware' },
+                { key:'sit_Nutzung',         label:'Nutzung' },
+                { key:'sit_Haushalt',        label:'Haushalt' },
+                { key:'sit_WeitereProdukte', label:'Weitere Produkte' },
+                { key:'sit_Fernsehen',       label:'Fernsehen' },
+                { key:'sit_WiFi',            label:'Wi-Fi' },
+                { key:'sit_Gesamtkosten',    label:'Gesamtkosten' },
+            ];
+            const OFFER_KEYS = [
+                { key:'offer1', label:'1. Hardware, Anbieter & Nutzung' },
+                { key:'offer2', label:'2. Haushalt & Weitere Produkte' },
+                { key:'offer3', label:'3. Fernsehen & Wi-Fi' },
+            ];
+            const COST_KEYS = [
+                { key:'cost_einmalig',   label:'Einmalig (€)' },
+                { key:'cost_monatlich1', label:'Monatlich 1. Jahr' },
+                { key:'cost_monatlich2', label:'Monatlich 2. Jahr' },
+                { key:'cost_smartphone', label:'Smartphone Finanzierung' },
+            ];
 
+            // KPIs
+            const total          = filtered.length;
+            const totalAbschluss = filtered.filter(r=>r.result==='Abschluss').length;
+            const totalAnfrage   = filtered.filter(r=>r.result==='Anfrage').length;
+            const totalAngebot   = filtered.filter(r=>r.result==='Angebot').length;
+            const totalAbgebr    = filtered.filter(r=>r.result==='Abgebrochen').length;
+            const convRate       = total ? Math.round((totalAbschluss/total)*100) : 0;
+            const skipped        = filtered.filter(r=>{ const cs=r.canvasStats||{}; return cs.skip_reason&&cs.skip_reason.used; }).length;
+            const qPassed        = filtered.filter(r=>{ const cs=r.canvasStats||{}; return IST_KEYS.filter(({key})=>cs[key]&&cs[key].used).length/10>=0.75; }).length;
+            const qRate          = total ? Math.round((qPassed/total)*100) : 0;
+
+            // Trend 6 Monate
             const trend6m = useMemo(() => {
                 const now = new Date();
                 const months = [];
-                for (let i = 5; i >= 0; i--) {
-                    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                for (let i=5;i>=0;i--) {
+                    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
                     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-                    const label = d.toLocaleString('de-DE', { month: 'short', year: '2-digit' });
-                    months.push({ key, label, total: 0, abschluss: 0 });
+                    const label = d.toLocaleString('de-DE',{month:'short',year:'2-digit'});
+                    months.push({key,label,total:0,abschluss:0,skipped:0,qPassed:0});
                 }
-                const byKey = Object.fromEntries(months.map(m => [m.key, m]));
-                (filtered || []).forEach(r => {
+                const byKey = Object.fromEntries(months.map(m=>[m.key,m]));
+                const base = selectedAgent==='__all__' ? rows : rows.filter(r=>resolveUserName(r.user)===selectedAgent);
+                base.forEach(r=>{
                     const t = Date.parse(r.ts);
                     if (!Number.isFinite(t)) return;
                     const d = new Date(t);
                     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-                    const bucket = byKey[key];
-                    if (!bucket) return;
-                    bucket.total += 1;
-                    if (r.result === 'Abschluss') bucket.abschluss += 1;
+                    const b = byKey[key]; if(!b) return;
+                    b.total++;
+                    if (r.result==='Abschluss') b.abschluss++;
+                    const cs=r.canvasStats||{};
+                    if (cs.skip_reason&&cs.skip_reason.used) b.skipped++;
+                    if (IST_KEYS.filter(({key:k})=>cs[k]&&cs[k].used).length/10>=0.75) b.qPassed++;
                 });
                 return months;
-            }, [filtered]);
+            }, [rows, selectedAgent]);
+
+            const trendMax = Math.max(1,...trend6m.map(m=>m.total));
 
             if (!isOpen) return null;
 
             const handleClear = () => {
-                if (!confirm('Analytics wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.')) return;
-                clearAnalyticsRows();
-                onClose();
+                if (!confirm('Analytics wirklich löschen?')) return;
+                clearAnalyticsRows(); onClose();
             };
 
-            const totalVorgaenge   = filtered.length;
-            const totalAnfragen    = filtered.filter(r => r.result === 'Anfrage').length;
-            const totalAngebote    = filtered.filter(r => r.result === 'Angebot').length;
-            const totalAbschluesse = filtered.filter(r => r.result === 'Abschluss').length;
-            const totalAbgebrochen = filtered.filter(r => r.result === 'Abgebrochen').length;
-            const convRate = totalVorgaenge ? Math.round((totalAbschluesse / totalVorgaenge) * 100) : 0;
-            const trendMax = Math.max(1, ...trend6m.map(m => m.total));
-            const summaryEntries = Object.entries(summary).sort((a, b) => b[1].abschluss - a[1].abschluss);
+            const RESULT_STYLE = (result) => {
+                const map = {
+                    'Abschluss':  {bg:'#ecfdf5',color:'#059669',border:'#6ee7b7'},
+                    'Angebot':    {bg:'#f5f3ff',color:'#7c3aed',border:'#c4b5fd'},
+                    'Anfrage':    {bg:'#eff6ff',color:'#2563eb',border:'#93c5fd'},
+                    'Abgebrochen':{bg:'#f8fafc',color:'#64748b',border:'#cbd5e1'},
+                };
+                return map[result]||{bg:'#f8fafc',color:'#94a3b8',border:'#e2e8f0'};
+            };
 
-            const TAB_BTN = (id, label, icon) => (
-                <button key={id} onClick={()=>setActiveTab(id)} style={{padding:'7px 14px',borderRadius:'8px',fontSize:'12px',fontWeight:700,border:'none',cursor:'pointer',transition:'all 0.15s',background:activeTab===id?'#fff':'transparent',color:activeTab===id?'#1e3a8a':'#64748b',boxShadow:activeTab===id?'0 1px 4px rgba(0,0,0,0.1)':'none'}}>
+            const BAR = (pct,color) => (
+                <div style={{flex:1,height:'8px',borderRadius:'4px',background:'#f1f5f9',overflow:'hidden'}}>
+                    <div style={{width:`${pct}%`,height:'100%',background:color,borderRadius:'4px',transition:'width 0.4s ease'}}/>
+                </div>
+            );
+
+            const TAB = (id,label,icon) => (
+                <button key={id} onClick={()=>setActiveTab(id)} style={{padding:'7px 12px',borderRadius:'8px',fontSize:'11px',fontWeight:700,border:'none',cursor:'pointer',transition:'all 0.15s',background:activeTab===id?'#fff':'transparent',color:activeTab===id?'#1e3a8a':'#64748b',boxShadow:activeTab===id?'0 1px 4px rgba(0,0,0,0.1)':'none',whiteSpace:'nowrap'}}>
                     {icon} {label}
                 </button>
             );
 
-            const RESULT_STYLE = (result) => {
-                const map = {
-                    'Abschluss': { bg:'#ecfdf5', color:'#059669', border:'#6ee7b7' },
-                    'Angebot':   { bg:'#f5f3ff', color:'#7c3aed', border:'#c4b5fd' },
-                    'Anfrage':   { bg:'#eff6ff', color:'#2563eb', border:'#93c5fd' },
-                    'Abgebrochen':{ bg:'#f8fafc', color:'#64748b', border:'#cbd5e1' },
-                };
-                return map[result] || { bg:'#f8fafc', color:'#94a3b8', border:'#e2e8f0' };
+            const exportCoachingCSV = () => {
+                const targetRows = selectedAgent==='__all__' ? filtered : filtered.filter(r=>resolveUserName(r.user)===selectedAgent);
+                const lines = [['Mitarbeiter','Datum','Ergebnis','Übersprungen','Qualität ≥75%',...IST_KEYS.map(k=>'IST: '+k.label),...OFFER_KEYS.map(k=>'Angebot: '+k.label),...COST_KEYS.map(k=>'Kosten: '+k.label)].join(';')];
+                targetRows.forEach(r=>{
+                    const cs=r.canvasStats||{};
+                    const skip=(cs.skip_reason&&cs.skip_reason.used)?'Ja':'Nein';
+                    const qual=(IST_KEYS.filter(({key})=>cs[key]&&cs[key].used).length/10>=0.75)?'Ja':'Nein';
+                    lines.push([resolveUserName(r.user)||'–',new Date(r.ts).toLocaleDateString('de-DE'),r.result||'–',skip,qual,...IST_KEYS.map(({key})=>(cs[key]&&cs[key].used)?'✓':''),...OFFER_KEYS.map(({key})=>(cs[key]&&cs[key].used)?'✓':''),...COST_KEYS.map(({key})=>(cs[key]&&cs[key].used)?'✓':'')].join(';'));
+                });
+                const name = selectedAgent==='__all__'?'Alle':selectedAgent.replace(/ /g,'_');
+                const blob = new Blob(['\uFEFF'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+                const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+                a.download=`Coaching_${name}_${new Date().toISOString().slice(0,10)}.csv`; a.click();
             };
 
             return (
                 <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-900/65 backdrop-blur-sm p-3" onClick={onClose}>
-                    <div onClick={e=>e.stopPropagation()} style={{background:'#f8fafc',width:'100%',maxWidth:'680px',borderRadius:'20px',boxShadow:'0 30px 80px rgba(0,0,0,0.25)',display:'flex',flexDirection:'column',maxHeight:'92vh',overflow:'hidden'}}>
+                  <div onClick={e=>e.stopPropagation()} style={{background:'#f8fafc',width:'100%',maxWidth:'700px',borderRadius:'20px',boxShadow:'0 30px 80px rgba(0,0,0,0.25)',display:'flex',flexDirection:'column',maxHeight:'94vh',overflow:'hidden'}}>
 
-                        {/* ── Header ── */}
-                        <div style={{background:'linear-gradient(135deg,#0f172a 0%,#1e3a8a 60%,#2563eb 100%)',padding:'18px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
-                            <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
-                                <div style={{width:'40px',height:'40px',borderRadius:'12px',background:'rgba(255,255,255,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'20px',flexShrink:0}}>📊</div>
-                                <div>
-                                    <div style={{color:'#fff',fontWeight:900,fontSize:'16px',letterSpacing:'-0.02em'}}>Statistik & Auswertung</div>
-                                    <div style={{color:'rgba(255,255,255,0.55)',fontSize:'11px',fontWeight:500,marginTop:'1px'}}>{totalVorgaenge} Vorgänge erfasst · DSGVO-konform lokal</div>
+                    {/* Header */}
+                    <div style={{background:'linear-gradient(135deg,#0f172a,#1e3a8a,#2563eb)',padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+                        <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+                            <div style={{width:'40px',height:'40px',borderRadius:'12px',background:'rgba(255,255,255,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'20px',flexShrink:0}}>📊</div>
+                            <div>
+                                <div style={{color:'#fff',fontWeight:900,fontSize:'16px',letterSpacing:'-0.02em'}}>Statistik & Auswertung</div>
+                                <div style={{color:'rgba(255,255,255,0.55)',fontSize:'11px',fontWeight:500,marginTop:'1px'}}>
+                                    {fbLoading?'⏳ Lade Daten...':fbRows!==null?`🔥 ${rows.length} Vorgänge · Live`:'⚠️ Firebase nicht erreichbar'}
                                 </div>
                             </div>
-                            <button onClick={onClose} style={{width:'32px',height:'32px',borderRadius:'8px',background:'rgba(255,255,255,0.12)',border:'1px solid rgba(255,255,255,0.2)',color:'rgba(255,255,255,0.8)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'15px',fontWeight:700,flexShrink:0}}>✕</button>
                         </div>
+                        <button onClick={onClose} style={{width:'32px',height:'32px',borderRadius:'8px',background:'rgba(255,255,255,0.12)',border:'1px solid rgba(255,255,255,0.2)',color:'rgba(255,255,255,0.8)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'15px',fontWeight:700,flexShrink:0}}>✕</button>
+                    </div>
 
-                        {/* ── Filter + Export Bar ── */}
-                        <div style={{background:'#fff',padding:'10px 16px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',gap:'5px',flexWrap:'wrap',flexShrink:0}}>
-                            <span style={{fontSize:'10px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.07em',marginRight:'3px'}}>Zeitraum</span>
-                            {[{id:'1',label:'Heute'},{id:'7',label:'7 Tage'},{id:'31',label:'31 Tage'},{id:'all',label:'Gesamt'}].map(r=>(
-                                <button key={r.id} onClick={()=>setRange(r.id)} style={{padding:'5px 12px',borderRadius:'999px',fontSize:'11px',fontWeight:700,border:`1.5px solid ${range===r.id?'#2563eb':'#e2e8f0'}`,background:range===r.id?'#2563eb':'#fff',color:range===r.id?'#fff':'#64748b',cursor:'pointer',transition:'all 0.15s'}}>{r.label}</button>
+                    {/* Mitarbeiter Dropdown + Zeitraum + Export */}
+                    <div style={{background:'#fff',padding:'10px 16px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap',flexShrink:0}}>
+                        <select value={selectedAgent} onChange={e=>{setSelectedAgent(e.target.value);}}
+                            style={{flex:'1 1 160px',border:'1.5px solid #e2e8f0',borderRadius:'8px',padding:'7px 10px',fontSize:'13px',fontWeight:700,color:'#1e293b',background:'#f8fafc',outline:'none',cursor:'pointer'}}>
+                            <option value="__all__">👥 Alle Mitarbeiter</option>
+                            {allAgents.map(a=><option key={a} value={a}>{a}</option>)}
+                        </select>
+                        <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+                            {[{id:'7',label:'7T'},{id:'31',label:'31T'},{id:'90',label:'90T'},{id:'180',label:'6M'},{id:'all',label:'Gesamt'}].map(r=>(
+                                <button key={r.id} onClick={()=>setRange(r.id)} style={{padding:'5px 10px',borderRadius:'999px',fontSize:'11px',fontWeight:700,border:`1.5px solid ${range===r.id?'#2563eb':'#e2e8f0'}`,background:range===r.id?'#2563eb':'#fff',color:range===r.id?'#fff':'#64748b',cursor:'pointer'}}>{r.label}</button>
                             ))}
-                            <div style={{marginLeft:'auto',display:'flex',gap:'5px',alignItems:'center'}}>
-                                <button onClick={exportAnalyticsCSV} style={{padding:'5px 11px',borderRadius:'8px',fontSize:'11px',fontWeight:700,background:'#1e293b',color:'#fff',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:'4px'}}>⬇ CSV</button>
-                                <button onClick={exportAnalyticsJSON} style={{padding:'5px 11px',borderRadius:'8px',fontSize:'11px',fontWeight:700,background:'#fff',color:'#475569',border:'1.5px solid #e2e8f0',cursor:'pointer'}}>⬇ JSON</button>
-                                <button onClick={handleClear} style={{padding:'5px 11px',borderRadius:'8px',fontSize:'11px',fontWeight:700,background:'#fff',color:'#ef4444',border:'1.5px solid #fecaca',cursor:'pointer'}}>🗑 Löschen</button>
-                            </div>
                         </div>
-
-                        {/* ── Tab Bar ── */}
-                        <div style={{background:'#fff',padding:'6px 16px 0',borderBottom:'1px solid #e2e8f0',display:'flex',gap:'4px',flexShrink:0}}>
-                            <div style={{display:'flex',background:'#f1f5f9',borderRadius:'10px',padding:'3px',gap:'2px'}}>
-                                {TAB_BTN('overview','Übersicht','📈')}
-                                {TAB_BTN('mitarbeiter','Mitarbeiter','👤')}
-                                {TAB_BTN('vorgaenge','Vorgänge','📋')}
-                            </div>
+                        <div style={{marginLeft:'auto',display:'flex',gap:'5px'}}>
+                            <button onClick={exportCoachingCSV} style={{padding:'5px 11px',borderRadius:'8px',fontSize:'11px',fontWeight:700,background:'#059669',color:'#fff',border:'none',cursor:'pointer'}}>⬇ CSV</button>
+                            <button onClick={exportAnalyticsJSON} style={{padding:'5px 11px',borderRadius:'8px',fontSize:'11px',fontWeight:700,background:'#fff',color:'#475569',border:'1.5px solid #e2e8f0',cursor:'pointer'}}>⬇ JSON</button>
+                            <button onClick={handleClear} style={{padding:'5px 11px',borderRadius:'8px',fontSize:'11px',fontWeight:700,background:'#fff',color:'#ef4444',border:'1.5px solid #fecaca',cursor:'pointer'}}>🗑</button>
                         </div>
+                    </div>
 
-                        {/* ── Scrollable Body ── */}
-                        <div className="custom-scrollbar" style={{overflowY:'auto',flex:1,padding:'16px'}}>
+                    {/* Tabs */}
+                    <div style={{background:'#fff',padding:'6px 16px 0',borderBottom:'1px solid #e2e8f0',display:'flex',gap:'2px',flexShrink:0,overflowX:'auto'}}>
+                        <div style={{display:'flex',background:'#f1f5f9',borderRadius:'10px',padding:'3px',gap:'2px'}}>
+                            {TAB('uebersicht','Übersicht','📈')}
+                            {TAB('entwicklung','Entwicklung','📅')}
+                            {TAB('coaching','Coaching','🎯')}
+                            {TAB('vorgaenge','Vorgänge','📋')}
+                        </div>
+                    </div>
 
-                            {/* ── TAB: ÜBERSICHT ── */}
-                            {activeTab === 'overview' && (
-                                <div style={{display:'flex',flexDirection:'column',gap:'14px'}}>
-                                    {/* KPI Grid */}
-                                    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
-                                        {[
-                                            {label:'Vorgänge',     value:totalVorgaenge,    color:'#2563eb', bg:'#eff6ff',  border:'#bfdbfe', icon:'📋'},
-                                            {label:'Anfragen',     value:totalAnfragen,     color:'#0891b2', bg:'#ecfeff',  border:'#a5f3fc', icon:'🔍'},
-                                            {label:'Angebote',     value:totalAngebote,     color:'#7c3aed', bg:'#f5f3ff',  border:'#ddd6fe', icon:'📄'},
-                                            {label:'Abschlüsse',   value:totalAbschluesse,  color:'#059669', bg:'#ecfdf5',  border:'#a7f3d0', icon:'✅'},
-                                            {label:'Abgebrochen',  value:totalAbgebrochen,  color:'#d97706', bg:'#fffbeb',  border:'#fde68a', icon:'⏹'},
-                                            {label:'Abschluss-Quote', value:`${convRate}%`, color:convRate>=30?'#059669':convRate>=15?'#d97706':'#dc2626', bg:convRate>=30?'#ecfdf5':convRate>=15?'#fffbeb':'#fef2f2', border:convRate>=30?'#a7f3d0':convRate>=15?'#fde68a':'#fecaca', icon:'🎯'},
-                                        ].map(k=>(
-                                            <div key={k.label} style={{background:'#fff',borderRadius:'14px',padding:'14px 12px',border:`1.5px solid ${k.border}`,boxShadow:'0 1px 3px rgba(0,0,0,0.05)'}}>
-                                                <div style={{fontSize:'18px',marginBottom:'6px'}}>{k.icon}</div>
-                                                <div style={{fontSize:'24px',fontWeight:900,color:k.color,lineHeight:1,fontVariantNumeric:'tabular-nums'}}>{k.value}</div>
-                                                <div style={{fontSize:'9px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.06em',marginTop:'5px'}}>{k.label}</div>
-                                            </div>
-                                        ))}
+                    {/* Body */}
+                    <div className="custom-scrollbar" style={{overflowY:'auto',flex:1,padding:'14px 16px',display:'flex',flexDirection:'column',gap:'12px'}}>
+
+                        {fbLoading && (
+                            <div style={{padding:'40px',textAlign:'center',color:'#94a3b8',fontSize:'14px',fontWeight:600}}>
+                                ⏳ Firebase Daten werden geladen...
+                            </div>
+                        )}
+
+                        {!fbLoading && (
+                        <>
+
+                        {/* ── ÜBERSICHT ── */}
+                        {activeTab==='uebersicht' && (<>
+                            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
+                                {[
+                                    {label:'Vorgänge',        value:total,          color:'#2563eb',bg:'#eff6ff',border:'#bfdbfe',icon:'📋'},
+                                    {label:'Anfragen',        value:totalAnfrage,   color:'#0891b2',bg:'#ecfeff',border:'#a5f3fc',icon:'🔍'},
+                                    {label:'Angebote',        value:totalAngebot,   color:'#7c3aed',bg:'#f5f3ff',border:'#ddd6fe',icon:'📄'},
+                                    {label:'Abschlüsse',      value:totalAbschluss, color:'#059669',bg:'#ecfdf5',border:'#a7f3d0',icon:'✅'},
+                                    {label:'Abgebrochen',     value:totalAbgebr,    color:'#d97706',bg:'#fffbeb',border:'#fde68a',icon:'⏹'},
+                                    {label:'Abschluss-Quote', value:`${convRate}%`, color:convRate>=30?'#059669':convRate>=15?'#d97706':'#dc2626',bg:convRate>=30?'#ecfdf5':convRate>=15?'#fffbeb':'#fef2f2',border:convRate>=30?'#a7f3d0':convRate>=15?'#fde68a':'#fecaca',icon:'🎯'},
+                                ].map(k=>(
+                                    <div key={k.label} style={{background:'#fff',borderRadius:'14px',padding:'13px 12px',border:`1.5px solid ${k.border}`}}>
+                                        <div style={{fontSize:'17px',marginBottom:'5px'}}>{k.icon}</div>
+                                        <div style={{fontSize:'22px',fontWeight:900,color:k.color,lineHeight:1}}>{k.value}</div>
+                                        <div style={{fontSize:'9px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.06em',marginTop:'4px'}}>{k.label}</div>
                                     </div>
-
-                                    {/* Trend */}
-                                    <div style={{background:'#fff',borderRadius:'14px',padding:'16px',border:'1px solid #e2e8f0',boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
-                                        <div style={{fontSize:'11px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:'14px',display:'flex',alignItems:'center',gap:'6px'}}>
-                                            <span>📈</span> Trend · letzte 6 Monate
+                                ))}
+                            </div>
+                            {/* Qualität + Skip Summary */}
+                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                                <div style={{background:'#fff',borderRadius:'14px',border:`1.5px solid ${qRate>=75?'#a7f3d0':qRate>=50?'#fde68a':'#fecaca'}`,padding:'13px 16px'}}>
+                                    <div style={{fontSize:'10px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'8px'}}>{qRate>=75?'✅':'❌'} Qualitätskontrolle</div>
+                                    <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                                        <div style={{flex:1,height:'8px',borderRadius:'4px',background:'#f1f5f9',overflow:'hidden'}}>
+                                            <div style={{width:`${qRate}%`,height:'100%',background:qRate>=75?'#059669':qRate>=50?'#d97706':'#dc2626',borderRadius:'4px'}}/>
                                         </div>
-                                        <div style={{display:'flex',alignItems:'flex-end',gap:'6px',height:'72px'}}>
-                                            {trend6m.map(m=>{
-                                                const barH = trendMax ? Math.max(4, Math.round((m.total/trendMax)*68)) : 4;
-                                                const absH = m.total>0 ? Math.round((m.abschluss/Math.max(1,m.total))*barH) : 0;
-                                                return (
-                                                    <div key={m.key} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:'3px'}}>
-                                                        <div style={{fontSize:'9px',fontWeight:800,color:m.total>0?'#2563eb':'#cbd5e1'}}>{m.total||''}</div>
-                                                        <div style={{width:'100%',borderRadius:'5px 5px 0 0',background:m.total>0?'#bfdbfe':'#f1f5f9',height:`${barH}px`,position:'relative',overflow:'hidden'}}>
-                                                            {absH>0&&<div style={{position:'absolute',bottom:0,left:0,right:0,background:'#10b981',height:`${absH}px`,borderRadius:'4px 4px 0 0'}}/>}
-                                                        </div>
-                                                        <div style={{fontSize:'9px',fontWeight:600,color:'#94a3b8',whiteSpace:'nowrap'}}>{m.label}</div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        <div style={{display:'flex',gap:'14px',marginTop:'10px'}}>
-                                            <div style={{display:'flex',alignItems:'center',gap:'5px'}}><div style={{width:'8px',height:'8px',borderRadius:'2px',background:'#bfdbfe'}}/><span style={{fontSize:'10px',color:'#64748b',fontWeight:600}}>Vorgänge</span></div>
-                                            <div style={{display:'flex',alignItems:'center',gap:'5px'}}><div style={{width:'8px',height:'8px',borderRadius:'2px',background:'#10b981'}}/><span style={{fontSize:'10px',color:'#64748b',fontWeight:600}}>Abschlüsse</span></div>
-                                        </div>
+                                        <span style={{fontSize:'16px',fontWeight:900,color:qRate>=75?'#059669':qRate>=50?'#d97706':'#dc2626'}}>{qRate}%</span>
                                     </div>
+                                    <div style={{fontSize:'10px',color:'#94a3b8',marginTop:'4px'}}>{qPassed} von {total} bestanden · Schwelle 75%</div>
                                 </div>
-                            )}
-
-                            {/* ── TAB: MITARBEITER ── */}
-                            {activeTab === 'mitarbeiter' && (
-                                <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
-                                    {summaryEntries.length === 0 ? (
-                                        <div style={{padding:'40px 20px',background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',textAlign:'center'}}>
-                                            <div style={{fontSize:'32px',marginBottom:'10px'}}>📭</div>
-                                            <div style={{color:'#64748b',fontWeight:700,fontSize:'14px'}}>Noch keine Daten</div>
-                                            <div style={{color:'#94a3b8',fontSize:'12px',marginTop:'6px'}}>Vorgänge werden beim Abschluss oder Druck automatisch erfasst.</div>
+                                <div style={{background:'#fff',borderRadius:'14px',border:`1.5px solid ${skipped/Math.max(1,total)>0.2?'#fecaca':'#fde68a'}`,padding:'13px 16px'}}>
+                                    <div style={{fontSize:'10px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'8px'}}>⏭ Übersprungen</div>
+                                    <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                                        <div style={{flex:1,height:'8px',borderRadius:'4px',background:'#f1f5f9',overflow:'hidden'}}>
+                                            <div style={{width:`${total?Math.round(skipped/total*100):0}%`,height:'100%',background:skipped/Math.max(1,total)>0.2?'#dc2626':'#d97706',borderRadius:'4px'}}/>
                                         </div>
-                                    ) : summaryEntries.map(([user, s]) => {
-                                        const conv = s.total ? Math.round((s.abschluss/s.total)*100) : 0;
-                                        const avgStrokes = (s.strokes / Math.max(1, s.total)).toFixed(1);
-                                        const initials = user === '–' ? '?' : user.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
-                                        const convColor = conv>=30?'#059669':conv>=15?'#d97706':'#dc2626';
-                                        const convBg = conv>=30?'#ecfdf5':conv>=15?'#fffbeb':'#fef2f2';
+                                        <span style={{fontSize:'16px',fontWeight:900,color:skipped/Math.max(1,total)>0.2?'#dc2626':'#d97706'}}>{total?Math.round(skipped/total*100):0}%</span>
+                                    </div>
+                                    <div style={{fontSize:'10px',color:'#94a3b8',marginTop:'4px'}}>{skipped} von {total} Pencil Sellings</div>
+                                </div>
+                            </div>
+                        </>)}
+
+                        {/* ── ENTWICKLUNG 6 MONATE ── */}
+                        {activeTab==='entwicklung' && (<>
+                            {/* Balkendiagramm Vorgänge */}
+                            <div style={{background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',padding:'16px'}}>
+                                <div style={{fontSize:'11px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:'14px'}}>📋 Pencil Sellings pro Monat</div>
+                                <div style={{display:'flex',alignItems:'flex-end',gap:'6px',height:'80px'}}>
+                                    {trend6m.map(m=>{
+                                        const h=trendMax?Math.max(4,Math.round((m.total/trendMax)*76)):4;
+                                        const ah=m.total?Math.round((m.abschluss/m.total)*h):0;
                                         return (
-                                            <div key={user} style={{background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
-                                                <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
-                                                    <div style={{width:'40px',height:'40px',borderRadius:'12px',background:'linear-gradient(135deg,#2563eb,#7c3aed)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:900,fontSize:'13px',flexShrink:0}}>{initials}</div>
-                                                    <div style={{flex:1,minWidth:0}}>
-                                                        <div style={{fontWeight:800,color:'#0f172a',fontSize:'14px',marginBottom:'6px'}}>{user}</div>
-                                                        <div style={{display:'flex',gap:'5px',flexWrap:'wrap'}}>
-                                                            {[
-                                                                {label:'Vorgänge',    val:s.total,      color:'#2563eb'},
-                                                                {label:'Anfragen',    val:s.anfrage,    color:'#0891b2'},
-                                                                {label:'Angebote',    val:s.angebot,    color:'#7c3aed'},
-                                                                {label:'Abschlüsse',  val:s.abschluss,  color:'#059669'},
-                                                                {label:'Abgebrochen', val:s.abgebrochen,color:'#d97706'},
-                                                            ].map(chip=>(
-                                                                <span key={chip.label} style={{fontSize:'10px',fontWeight:700,padding:'3px 8px',borderRadius:'999px',background:`${chip.color}10`,color:chip.color,border:`1px solid ${chip.color}25`}}>{chip.label}: {chip.val}</span>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                    <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'3px',background:convBg,borderRadius:'12px',padding:'10px 14px',flexShrink:0}}>
-                                                        <div style={{fontSize:'22px',fontWeight:900,color:convColor,lineHeight:1}}>{conv}%</div>
-                                                        <div style={{fontSize:'9px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.06em'}}>Quote</div>
-                                                        <div style={{fontSize:'10px',color:'#64748b',fontWeight:600,marginTop:'2px'}}>✏ Ø {avgStrokes}</div>
-                                                    </div>
+                                            <div key={m.key} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:'3px'}}>
+                                                <div style={{fontSize:'9px',fontWeight:800,color:m.total>0?'#2563eb':'#cbd5e1'}}>{m.total||''}</div>
+                                                <div style={{width:'100%',borderRadius:'5px 5px 0 0',background:m.total>0?'#bfdbfe':'#f1f5f9',height:`${h}px`,position:'relative',overflow:'hidden'}}>
+                                                    {ah>0&&<div style={{position:'absolute',bottom:0,left:0,right:0,background:'#059669',height:`${ah}px`}}/>}
+                                                </div>
+                                                <div style={{fontSize:'9px',color:'#94a3b8',fontWeight:600,whiteSpace:'nowrap'}}>{m.label}</div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div style={{display:'flex',gap:'14px',marginTop:'8px'}}>
+                                    <div style={{display:'flex',alignItems:'center',gap:'5px'}}><div style={{width:'8px',height:'8px',borderRadius:'2px',background:'#bfdbfe'}}/><span style={{fontSize:'10px',color:'#64748b',fontWeight:600}}>Vorgänge</span></div>
+                                    <div style={{display:'flex',alignItems:'center',gap:'5px'}}><div style={{width:'8px',height:'8px',borderRadius:'2px',background:'#059669'}}/><span style={{fontSize:'10px',color:'#64748b',fontWeight:600}}>Abschlüsse</span></div>
+                                </div>
+                            </div>
+                            {/* Qualität & Skip pro Monat */}
+                            <div style={{background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',padding:'16px'}}>
+                                <div style={{fontSize:'11px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:'12px'}}>📈 Qualität & Übersprungen pro Monat</div>
+                                <div style={{display:'flex',flexDirection:'column',gap:'10px'}}>
+                                    {trend6m.map(m=>{
+                                        const qR=m.total?Math.round(m.qPassed/m.total*100):0;
+                                        const sR=m.total?Math.round(m.skipped/m.total*100):0;
+                                        return (
+                                            <div key={m.key} style={{display:'grid',gridTemplateColumns:'52px 1fr 1fr',gap:'10px',alignItems:'center'}}>
+                                                <div style={{fontSize:'11px',fontWeight:700,color:'#475569'}}>{m.label}</div>
+                                                <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
+                                                    {BAR(qR,qR>=75?'#059669':qR>=50?'#d97706':'#dc2626')}
+                                                    <span style={{fontSize:'10px',fontWeight:800,color:qR>=75?'#059669':qR>=50?'#d97706':'#dc2626',width:'32px',textAlign:'right'}}>{m.total?qR+'%':'–'}</span>
+                                                    <span style={{fontSize:'9px',color:'#94a3b8',width:'28px'}}>Qual.</span>
+                                                </div>
+                                                <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
+                                                    {BAR(sR,sR>20?'#dc2626':sR>10?'#d97706':'#94a3b8')}
+                                                    <span style={{fontSize:'10px',fontWeight:800,color:sR>20?'#dc2626':sR>10?'#d97706':'#64748b',width:'32px',textAlign:'right'}}>{m.total?sR+'%':'–'}</span>
+                                                    <span style={{fontSize:'9px',color:'#94a3b8',width:'28px'}}>Skip</span>
                                                 </div>
                                             </div>
                                         );
                                     })}
                                 </div>
-                            )}
+                            </div>
+                        </>)}
 
-                            {/* ── TAB: VORGÄNGE ── */}
-                            {activeTab === 'vorgaenge' && (
-                                <div>
-                                    {filtered.length === 0 ? (
-                                        <div style={{padding:'40px 20px',background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',textAlign:'center'}}>
-                                            <div style={{fontSize:'32px',marginBottom:'10px'}}>📭</div>
-                                            <div style={{color:'#64748b',fontWeight:700,fontSize:'14px'}}>Keine Vorgänge im gewählten Zeitraum</div>
-                                        </div>
-                                    ) : (
-                                        <div style={{background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
-                                            <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
-                                                <thead>
-                                                    <tr style={{background:'#f8fafc',borderBottom:'2px solid #e2e8f0'}}>
-                                                        {['Datum','Mitarbeiter','Beratungs-ID','Ergebnis'].map(h=>(
-                                                            <th key={h} style={{padding:'10px 14px',textAlign:'left',fontWeight:700,color:'#475569',fontSize:'10px',textTransform:'uppercase',letterSpacing:'0.06em'}}>{h}</th>
-                                                        ))}
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {filtered.slice(0,20).map((r,i)=>{
-                                                        const ts = new Date(r.ts);
-                                                        const dateStr = ts.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'});
-                                                        const timeStr = ts.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
-                                                        const rs = RESULT_STYLE(r.result);
-                                                        return (
-                                                            <tr key={r.id||i} style={{borderTop:'1px solid #f1f5f9',background:i%2===0?'#fff':'#fafafa'}}>
-                                                                <td style={{padding:'9px 14px',color:'#475569',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums'}}>
-                                                                    {dateStr}<span style={{color:'#cbd5e1',margin:'0 3px'}}>·</span><span style={{color:'#94a3b8',fontSize:'11px'}}>{timeStr}</span>
-                                                                </td>
-                                                                <td style={{padding:'9px 14px',fontWeight:700,color:'#0f172a'}}>{resolveUserName(r.user)||'–'}</td>
-                                                                <td style={{padding:'9px 14px',fontFamily:'monospace',fontSize:'11px',color:r.beratungsId?'#1e293b':'#cbd5e1',letterSpacing:'0.04em'}}>{r.beratungsId||'–'}</td>
-                                                                <td style={{padding:'9px 14px'}}>
-                                                                    <span style={{padding:'3px 9px',borderRadius:'999px',fontSize:'10px',fontWeight:700,background:rs.bg,color:rs.color,border:`1px solid ${rs.border}`}}>{r.result||'offen'}</span>
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    })}
-                                                </tbody>
-                                            </table>
-                                            {filtered.length > 20 && (
-                                                <div style={{padding:'10px 14px',textAlign:'center',fontSize:'11px',color:'#94a3b8',background:'#f8fafc',borderTop:'1px solid #f1f5f9'}}>
-                                                    +{filtered.length-20} weitere Einträge · vollständiger Export via CSV
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
+                        {/* ── COACHING ── */}
+                        {activeTab==='coaching' && (<>
+                            {/* Ist-Analyse */}
+                            <div style={{background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',padding:'16px'}}>
+                                <div style={{fontSize:'11px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:'12px'}}>🔍 Ist-Analyse – wie oft abgefragt</div>
+                                <div style={{display:'flex',flexDirection:'column',gap:'7px'}}>
+                                    {IST_KEYS.map(({key,label})=>{
+                                        const count=filtered.filter(r=>{const v=(r.canvasStats||{})[key];return v&&v.used;}).length;
+                                        const pct=total?Math.round(count/total*100):0;
+                                        return (
+                                            <div key={key} style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                                                <div style={{width:'130px',fontSize:'12px',fontWeight:600,color:'#475569',flexShrink:0}}>{label}</div>
+                                                {BAR(pct,'#3b82f6')}
+                                                <div style={{width:'36px',textAlign:'right',fontSize:'12px',fontWeight:800,color:'#1e293b',flexShrink:0}}>{count}×</div>
+                                                <div style={{width:'34px',textAlign:'right',fontSize:'11px',fontWeight:700,color:'#94a3b8',flexShrink:0}}>{pct}%</div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                            )}
+                            </div>
+                            {/* Angebote */}
+                            <div style={{background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',padding:'16px'}}>
+                                <div style={{fontSize:'11px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:'12px'}}>📄 Angebote – wie oft präsentiert</div>
+                                <div style={{display:'flex',flexDirection:'column',gap:'7px'}}>
+                                    {OFFER_KEYS.map(({key,label})=>{
+                                        const count=filtered.filter(r=>{const v=(r.canvasStats||{})[key];return v&&v.used;}).length;
+                                        const pct=total?Math.round(count/total*100):0;
+                                        return (
+                                            <div key={key} style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                                                <div style={{width:'200px',fontSize:'12px',fontWeight:600,color:'#475569',flexShrink:0}}>{label}</div>
+                                                {BAR(pct,'#7c3aed')}
+                                                <div style={{width:'36px',textAlign:'right',fontSize:'12px',fontWeight:800,color:'#1e293b',flexShrink:0}}>{count}×</div>
+                                                <div style={{width:'34px',textAlign:'right',fontSize:'11px',fontWeight:700,color:'#94a3b8',flexShrink:0}}>{pct}%</div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            {/* Kosten */}
+                            <div style={{background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',padding:'16px'}}>
+                                <div style={{fontSize:'11px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:'12px'}}>💰 Kostenübersicht – wie oft Preise eingetragen</div>
+                                <div style={{display:'flex',flexDirection:'column',gap:'7px'}}>
+                                    {COST_KEYS.map(({key,label})=>{
+                                        const count=filtered.filter(r=>{const v=(r.canvasStats||{})[key];return v&&v.used;}).length;
+                                        const pct=total?Math.round(count/total*100):0;
+                                        return (
+                                            <div key={key} style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                                                <div style={{width:'200px',fontSize:'12px',fontWeight:600,color:'#475569',flexShrink:0}}>{label}</div>
+                                                {BAR(pct,'#059669')}
+                                                <div style={{width:'36px',textAlign:'right',fontSize:'12px',fontWeight:800,color:'#1e293b',flexShrink:0}}>{count}×</div>
+                                                <div style={{width:'34px',textAlign:'right',fontSize:'11px',fontWeight:700,color:'#94a3b8',flexShrink:0}}>{pct}%</div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            {/* Qualitätskontrolle */}
+                            <div style={{background:'#fff',borderRadius:'14px',border:`2px solid ${qRate>=75?'#a7f3d0':qRate>=50?'#fde68a':'#fecaca'}`,padding:'16px'}}>
+                                <div style={{fontSize:'11px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:'12px'}}>{qRate>=75?'✅':'❌'} Qualitätskontrolle · mind. 75% (8/10 Felder)</div>
+                                <div style={{display:'flex',alignItems:'center',gap:'16px',flexWrap:'wrap'}}>
+                                    <div style={{flex:1,minWidth:'140px'}}>
+                                        <div style={{height:'12px',borderRadius:'6px',background:'#f1f5f9',overflow:'hidden',marginBottom:'6px'}}>
+                                            <div style={{width:`${qRate}%`,height:'100%',background:qRate>=75?'#059669':qRate>=50?'#d97706':'#dc2626',borderRadius:'6px',transition:'width 0.4s'}}/>
+                                        </div>
+                                        <div style={{fontSize:'10px',color:'#94a3b8',fontWeight:600}}>Schwelle bei 75%</div>
+                                    </div>
+                                    <div style={{display:'flex',gap:'8px',flexShrink:0}}>
+                                        <div style={{textAlign:'center',background:qRate>=75?'#ecfdf5':qRate>=50?'#fffbeb':'#fef2f2',borderRadius:'12px',padding:'8px 14px',border:`1px solid ${qRate>=75?'#a7f3d0':qRate>=50?'#fde68a':'#fecaca'}`}}>
+                                            <div style={{fontSize:'22px',fontWeight:900,color:qRate>=75?'#059669':qRate>=50?'#d97706':'#dc2626'}}>{qRate}%</div>
+                                            <div style={{fontSize:'9px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase'}}>Quote</div>
+                                        </div>
+                                        <div style={{textAlign:'center',background:'#ecfdf5',borderRadius:'12px',padding:'8px 14px',border:'1px solid #a7f3d0'}}>
+                                            <div style={{fontSize:'22px',fontWeight:900,color:'#059669'}}>{qPassed}</div>
+                                            <div style={{fontSize:'9px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase'}}>Bestanden</div>
+                                        </div>
+                                        <div style={{textAlign:'center',background:'#fef2f2',borderRadius:'12px',padding:'8px 14px',border:'1px solid #fecaca'}}>
+                                            <div style={{fontSize:'22px',fontWeight:900,color:'#dc2626'}}>{total-qPassed}</div>
+                                            <div style={{fontSize:'9px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase'}}>Nicht best.</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {total===0&&<div style={{padding:'40px',textAlign:'center',color:'#94a3b8',fontSize:'13px',fontWeight:600,background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0'}}>📭 Keine Daten im gewählten Zeitraum</div>}
+                        </>)}
 
-                        </div>
+                        {/* ── VORGÄNGE ── */}
+                        {activeTab==='vorgaenge' && (
+                            filtered.length===0 ? (
+                                <div style={{padding:'40px',textAlign:'center',color:'#94a3b8',fontSize:'13px',fontWeight:600,background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0'}}>📭 Keine Vorgänge im gewählten Zeitraum</div>
+                            ) : (
+                                <div style={{background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',overflow:'hidden'}}>
+                                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
+                                        <thead>
+                                            <tr style={{background:'#f8fafc',borderBottom:'2px solid #e2e8f0'}}>
+                                                {['Datum','Mitarbeiter','Beratungs-ID','Ergebnis'].map(h=>(
+                                                    <th key={h} style={{padding:'9px 12px',textAlign:'left',fontWeight:700,color:'#475569',fontSize:'10px',textTransform:'uppercase',letterSpacing:'0.06em'}}>{h}</th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filtered.slice(0,25).map((r,i)=>{
+                                                const ts=new Date(r.ts);
+                                                const rs=RESULT_STYLE(r.result);
+                                                return (
+                                                    <tr key={r.id||i} style={{borderTop:'1px solid #f1f5f9',background:i%2===0?'#fff':'#fafafa'}}>
+                                                        <td style={{padding:'8px 12px',color:'#475569',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums'}}>
+                                                            {ts.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'})}<span style={{color:'#cbd5e1',margin:'0 3px'}}>·</span><span style={{color:'#94a3b8',fontSize:'11px'}}>{ts.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>
+                                                        </td>
+                                                        <td style={{padding:'8px 12px',fontWeight:700,color:'#0f172a'}}>{resolveUserName(r.user)||'–'}</td>
+                                                        <td style={{padding:'8px 12px',fontFamily:'monospace',fontSize:'11px',color:r.beratungsId?'#1e293b':'#cbd5e1'}}>{r.beratungsId||'–'}</td>
+                                                        <td style={{padding:'8px 12px'}}>
+                                                            <span style={{padding:'3px 8px',borderRadius:'999px',fontSize:'10px',fontWeight:700,background:rs.bg,color:rs.color,border:`1px solid ${rs.border}`}}>{r.result||'offen'}</span>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                    {filtered.length>25&&<div style={{padding:'9px 12px',textAlign:'center',fontSize:'11px',color:'#94a3b8',background:'#f8fafc',borderTop:'1px solid #f1f5f9'}}>+{filtered.length-25} weitere · Export via CSV</div>}
+                                </div>
+                            )
+                        )}
+
+                        </>
+                        )}
+
                     </div>
+                  </div>
                 </div>
             );
         };
@@ -11320,7 +11636,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik (passwortgeschützt)"><Icon d={ICONS.Lock} size={18}/></button><button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div>{LINK_EMPLOYEE === 'Diego da Silva' && (<button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>)}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
