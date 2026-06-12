@@ -7913,6 +7913,47 @@ function hideInkTipOverlay() {
         ov.__rect = null;
     } catch (_) {}
 }
+// v44.2: Textmarker-Live-Vorschau – GANZER Strich als EIN Pfad auf dem Overlay.
+// Segmentweises Zeichnen würde die Transparenz an den Übergängen aufaddieren
+// (fleckige Verdunkelungen). Ein Pfad = perfekt gleichmäßige Markerfarbe.
+// Commit auf den echten Canvas erfolgt erst beim Abheben (stopDrawing), ebenfalls als ein Pfad.
+function buildMidpointPath(ctx, fp) {
+    ctx.moveTo(fp[0].x, fp[0].y);
+    if (fp.length === 2) { ctx.lineTo(fp[1].x, fp[1].y); return; }
+    ctx.lineTo((fp[0].x + fp[1].x) / 2, (fp[0].y + fp[1].y) / 2);
+    for (let i = 1; i < fp.length - 1; i++) {
+        ctx.quadraticCurveTo(fp[i].x, fp[i].y, (fp[i].x + fp[i + 1].x) / 2, (fp[i].y + fp[i + 1].y) / 2);
+    }
+    ctx.lineTo(fp[fp.length - 1].x, fp[fp.length - 1].y);
+}
+function renderHighlighterPreview(stroke) {
+    try {
+        const ov = window.__inkTipOverlay;
+        if (!ov || ov.style.display === 'none' || !ov.__rect) return;
+        const fp = stroke && stroke.points;
+        if (!fp || fp.length === 0) return;
+        const rect = ov.__rect;
+        const dpr = ov.__dpr || 1;
+        const ctx = ov.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, rect.width, rect.height);
+        ctx.strokeStyle = stroke.color || '#facc15';
+        ctx.globalAlpha = stroke.opacity != null ? stroke.opacity : 0.4;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(0.5, (stroke.baseLineWidth || 2) * 3);
+        ctx.beginPath();
+        if (fp.length === 1) {
+            ctx.fillStyle = stroke.color || '#facc15';
+            ctx.arc(fp[0].x, fp[0].y, ctx.lineWidth / 2, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            buildMidpointPath(ctx, fp);
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+    } catch (_) {}
+}
+
 function renderInkTip(e, stroke) {
     try {
         const ov = window.__inkTipOverlay;
@@ -8068,7 +8109,7 @@ function renderInkTip(e, stroke) {
                     if (strokeHasVariableWidth(stroke) && stroke.tool !== 'eraser' && stroke.tool !== 'highlighter') {
                         drawVariableWidthPath(ctx, pts, stroke.points, finalLineWidth);
                     } else {
-                        const isSmooth = (stroke.tool === 'fountain' || stroke.tool === 'ballpen' || stroke.tool === 'pen');
+                        const isSmooth = (stroke.tool === 'fountain' || stroke.tool === 'ballpen' || stroke.tool === 'pen' || stroke.tool === 'highlighter');
                         if (isSmooth && pts.length >= 3) {
                             ctx.moveTo(pts[0].x, pts[0].y);
                             ctx.lineTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
@@ -8458,7 +8499,7 @@ function renderInkTip(e, stroke) {
         )}
         {hasOverlay && !(statusKey === 'offer1' || statusKey === 'offer2' || statusKey === 'offer3') && (<button onClick={(onClearOverlay||onClearImage)} className="p-1.5 rounded-full bg-red-50 text-red-600 hover:bg-red-100 transition-colors" title="Inhalt entfernen"><Icon d={ICONS.Trash} size={14}/></button>)}</div></div><div className="flex items-center gap-2 mt-2"><span className="text-[10px] font-medium text-slate-500 mr-1 uppercase">Status:</span><button data-print-keep="1" onClick={() => toggleStatus('open')} className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1 border ${isOpen ? 'bg-red-500 text-white shadow-lg shadow-red-200/50' : 'text-slate-500 bg-red-50 border-red-200 hover:bg-red-100'}`}>{isOpen ? <Icon d={ICONS.AlertCircle} size={10}/> : null} Offen</button><button data-print-keep="1" onClick={() => toggleStatus('closed')} className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1 border ${isClosed ? 'bg-green-500 text-white shadow-lg shadow-green-200/50' : 'text-slate-500 bg-green-50 border-green-200 hover:bg-green-100'}`}>{isClosed ? <Icon d={ICONS.CheckCircle} size={10}/> : null} Abgeschlossen</button></div>
 
-</div><div className="canvas-lines"></div>{htmlOverlay && (<div ref={overlayOuterRef} className="offer-overlay-outer" style={{ position: 'relative', width: '100%', height: overlayBoxHeight ? overlayBoxHeight + 'px' : 'auto', overflow: 'hidden', zIndex: 45, background: '#ffffff' }}><div ref={overlayWrapRef} className="offer-html-overlay-wrap" style={{ position: 'absolute', top: 0, left: 0, width: (100 / overlayFitScale) + '%', boxSizing: 'border-box', padding: '0', margin: '0', transform: `scale(${overlayFitScale})`, transformOrigin: 'top left', pointerEvents: 'none', userSelect: 'none', background: '#ffffff', color: '#1e293b', borderRadius: '8px' }} dangerouslySetInnerHTML={{ __html: htmlOverlay }} /></div>)}<div className="relative flex-1 w-full h-full min-h-[100px] overflow-hidden" style={htmlOverlay ? {display:'none'} : {}}><textarea value={textValue || ''} onChange={(e) => handleTextChange(statusKey, e.target.value)} className={getOfferTextClasses()} style={{ ...getOfferTextStyle(), position:'absolute', inset:0, width:'100%', height:'100%', zIndex: inputMode === 'keyboard' ? 30 : 10, pointerEvents: inputMode === 'keyboard' ? 'auto' : 'none', userSelect: inputMode === 'keyboard' ? 'text' : 'none', WebkitUserSelect: inputMode === 'keyboard' ? 'text' : 'none' }} inputMode={inputMode === 'pen' ? 'none' : undefined} placeholder={inputMode === 'keyboard' ? 'Hier tippen...' : ''} readOnly={inputMode === 'pen'} /><canvas ref={canvasRef} data-stroke-key={statusKey} onPointerDown={(e) => { e.preventDefault(); startDrawing(e, canvasRef, statusKey); }} onPointerMove={(e) => draw(e, canvasRef, statusKey)} onPointerUp={(e) => stopDrawing(e, canvasRef)} onPointerLeave={(e) => stopDrawing(e, canvasRef)} onPointerCancel={(e) => stopDrawing(e, canvasRef)} className="w-full h-full drawing-canvas absolute inset-0" style={{zIndex: inputMode === 'pen' ? 25 : 5, pointerEvents: inputMode === 'pen' ? 'auto' : 'none', touchAction: 'none'}}/>
+</div><div className="canvas-lines"></div>{htmlOverlay && (<div ref={overlayOuterRef} className="offer-overlay-outer" style={{ position: 'relative', width: '100%', height: overlayBoxHeight ? overlayBoxHeight + 'px' : 'auto', overflow: 'hidden', zIndex: 45, background: '#ffffff' }}><div ref={overlayWrapRef} className="offer-html-overlay-wrap" style={{ position: 'absolute', top: 0, left: 0, width: (100 / overlayFitScale) + '%', boxSizing: 'border-box', padding: '0', margin: '0', transform: `scale(${overlayFitScale})`, transformOrigin: 'top left', pointerEvents: 'none', userSelect: 'none', background: '#ffffff', color: '#1e293b', borderRadius: '8px' }} dangerouslySetInnerHTML={{ __html: htmlOverlay }} /></div>)}<div className="relative flex-1 w-full h-full min-h-[100px] overflow-hidden" style={htmlOverlay ? {display:'none'} : {}}><textarea value={textValue || ''} onChange={(e) => handleTextChange(statusKey, e.target.value)} className={getOfferTextClasses()} style={{ ...getOfferTextStyle(), position:'absolute', inset:0, width:'100%', height:'100%', zIndex: inputMode === 'keyboard' ? 30 : 10, pointerEvents: inputMode === 'keyboard' ? 'auto' : 'none', userSelect: inputMode === 'keyboard' ? 'text' : 'none', WebkitUserSelect: inputMode === 'keyboard' ? 'text' : 'none' }} inputMode={inputMode === 'pen' ? 'none' : undefined} placeholder={inputMode === 'keyboard' ? 'Hier tippen...' : ''} readOnly={inputMode === 'pen'} /><canvas ref={canvasRef} data-stroke-key={statusKey} onPointerDown={(e) => { e.preventDefault(); startDrawing(e, canvasRef, statusKey); }} onPointerMove={(e) => draw(e, canvasRef, statusKey)} onPointerUp={(e) => stopDrawing(e, canvasRef)} onPointerLeave={(e) => stopDrawing(e, canvasRef)} onPointerCancel={(e) => stopDrawing(e, canvasRef)} className="w-full h-full drawing-canvas absolute inset-0" style={{zIndex: inputMode === 'pen' ? 25 : 5, pointerEvents: inputMode === 'pen' ? 'auto' : 'none', touchAction: 'pan-y pinch-zoom'}}/>
             </div>{image && !htmlOverlay && (<div className="foto-frame-fixed shrink-0" style={{ width:'min(470px, 72%)', aspectRatio:'13 / 9', minHeight:'200px', overflow:'hidden', background:'#ffffff', border:'6px solid #ffffff', borderRadius:'10px', boxShadow:'0 8px 22px rgba(15,23,42,0.20)', position:'relative', flexShrink:0, marginLeft:'auto', marginRight:'14px', marginBottom:'12px' }}><img src={image} alt="Kundenfoto" className="canvas-image-fixed" style={{ width:'100%', height:'100%', objectFit:'cover', objectPosition:'center center', display:'block', pointerEvents:'none', userSelect:'none', borderRadius:'4px' }}/></div>)}</div>); });
         
         // --- SMALL INPUT CANVAS (Patched with drawing-canvas class) ---
@@ -8725,6 +8766,11 @@ const toolRef = useRef('pen');
                 }
                 if (toolId === 'ballpen') {
                     return { width: bw, opacity: Math.max(0.6, Math.min(0.8, baseOpacity)), smooth: 0.25 };
+                }
+                // v44.2: Textmarker = echter Marker → ~50% transparenter als die Stifte
+                // (Slider wirkt weiter, aber gedeckelt auf max. 50% Deckkraft)
+                if (toolId === 'highlighter') {
+                    return { width: bw, opacity: Math.max(0.12, Math.min(0.5, baseOpacity * 0.45)), smooth: 0 };
                 }
                 return { width: bw, opacity: Math.min(1, baseOpacity), smooth: 0 };
             };
@@ -10578,13 +10624,29 @@ const handleFinishOfferClick = () => {
                 if (!canvas.__pinchState) canvas.__pinchState = { count: 0, penActive: false, penPointerId: null };
                 return canvas.__pinchState;
             };
+            // === v44.1 GOODNOTES-SCROLLING ===
+            // Finger = Scrollen (immer, ohne Hand-Modus), Stift = Schreiben.
+            // Palm Rejection: solange der Stift schreibt + 500ms Nachlauf (Handballen
+            // liegt nach dem Abheben noch auf) werden Touch-Gesten komplett blockiert.
+            const PEN_GRACE_MS = 500;
+            const isPenActiveOrRecent = () => {
+                try {
+                    return (activePenCanvasRef.current !== null) || (Date.now() < (window.__penGraceUntil || 0));
+                } catch(_) { return false; }
+            };
             const updateCanvasTouchAction = (canvas, count) => {
                 if (!canvas) return;
                 if (gestureModeRef?.current || count >= 2) {
                     canvas.style.touchAction = 'pan-x pan-y pinch-zoom';
                     return;
                 }
-                canvas.style.touchAction = 'none';
+                // Stift aktiv / gerade abgehoben → Handballen darf nicht scrollen
+                if (isPenActiveOrRecent()) {
+                    canvas.style.touchAction = 'none';
+                    return;
+                }
+                // Default: 1-Finger-Scrollen + Pinch erlaubt (Zeichnen ist eh Stylus-only)
+                canvas.style.touchAction = 'pan-y pinch-zoom';
             };
 
             // ═══════════════════════════════════════════════════════════════
@@ -10599,9 +10661,9 @@ const handleFinishOfferClick = () => {
             const globalTouchCountRef = useRef(0);
             useEffect(() => {
                 const onTouchStart = (e) => {
-                    // === PALM REJECTION: Wenn Stift aktiv → Touch-Events blockieren ===
+                    // === PALM REJECTION: Stift aktiv ODER gerade abgehoben (Grace) → Touch blockieren ===
                     // AUSNAHME: Toolbar (footer-bar) immer durchlassen – auch während Stift schreibt
-                    if (activePenCanvasRef.current !== null) {
+                    if (activePenCanvasRef.current !== null || Date.now() < (window.__penGraceUntil || 0)) {
                         const isOnToolbar = e.target?.closest?.('.footer-bar');
                         if (isOnToolbar) return; // Toolbar: immer anklickbar
                         e.preventDefault();
@@ -10621,14 +10683,16 @@ const handleFinishOfferClick = () => {
                     if (activePenCanvasRef.current !== null) return;
                     globalTouchCountRef.current = e.touches.length;
                     if (e.touches.length < 2 && !gestureModeRef?.current) {
+                        // v44.1: zurück auf Finger-Scroll-Default (nicht mehr 'none')
+                        const ta = isPenActiveOrRecent() ? 'none' : 'pan-y pinch-zoom';
                         document.querySelectorAll('canvas.drawing-canvas').forEach(c => {
-                            c.style.touchAction = 'none';
+                            c.style.touchAction = ta;
                         });
                     }
                 };
-                // Scroll während Stift aktiv → blockieren
+                // Scroll während Stift aktiv / Grace-Periode → blockieren (Handballen)
                 const onTouchMove = (e) => {
-                    if (activePenCanvasRef.current !== null) {
+                    if (activePenCanvasRef.current !== null || Date.now() < (window.__penGraceUntil || 0)) {
                         e.preventDefault();
                     }
                 };
@@ -10776,8 +10840,9 @@ const handleFinishOfferClick = () => {
                     smoothedVelocity: 0
                 };
 
-                // Live-Tip-Overlay über dem aktiven Canvas positionieren (Latenz-Kaschierung)
-                if (currentTool !== 'eraser' && currentTool !== 'highlighter') {
+                // Live-Tip-Overlay über dem aktiven Canvas positionieren (Latenz-Kaschierung).
+                // v44.2: Textmarker nutzt das Overlay für die komplette Ein-Pfad-Vorschau.
+                if (currentTool !== 'eraser') {
                     positionInkTipOverlay(canvas);
                 } else {
                     hideInkTipOverlay();
@@ -10911,6 +10976,11 @@ const handleFinishOfferClick = () => {
 
                     pts.push({ x, y, pressure: prRaw, width: smoothedWidth, wf });
 
+                    // v44.2: Textmarker wird NICHT segmentweise auf den Canvas gezeichnet
+                    // (Transparenz würde sich an Übergängen aufaddieren) → Ein-Pfad-Vorschau
+                    // auf dem Overlay, Commit als ein Pfad beim Abheben.
+                    if (currentTool === 'highlighter') continue;
+
                     // Live-Bezier-Rendering: Quadratic Curve für flüssige Linien
                     if (pts.length >= 3) {
                         const p0 = pts[pts.length - 3];
@@ -10954,7 +11024,10 @@ const handleFinishOfferClick = () => {
                 }
 
                 // === v44.0 LIVE-TIP: fehlendes letztes Stück + Prediction bis zur Stiftspitze ===
-                if (currentTool !== 'eraser' && currentTool !== 'highlighter') {
+                // v44.2: Textmarker → komplette Ein-Pfad-Vorschau statt Tip-Segment
+                if (currentTool === 'highlighter') {
+                    renderHighlighterPreview(stroke);
+                } else if (currentTool !== 'eraser') {
                     renderInkTip(nativeEv, stroke);
                 }
             }, []);
@@ -10972,6 +11045,19 @@ const handleFinishOfferClick = () => {
                     if (activePenCanvasRef.current === canvas || activePenPointerIdRef.current === e.pointerId) {
                         activePenCanvasRef.current = null;
                         activePenPointerIdRef.current = null;
+                        // v44.1: Grace-Periode – Handballen liegt nach dem Abheben noch auf.
+                        // Erst danach Finger-Scrollen wieder freigeben.
+                        try {
+                            window.__penGraceUntil = Date.now() + PEN_GRACE_MS;
+                            setTimeout(() => {
+                                if (activePenCanvasRef.current === null && Date.now() >= (window.__penGraceUntil || 0)) {
+                                    document.querySelectorAll('canvas.drawing-canvas').forEach(c => {
+                                        const st2 = getCanvasPointerState(c);
+                                        updateCanvasTouchAction(c, st2.count || 0);
+                                    });
+                                }
+                            }, PEN_GRACE_MS + 30);
+                        } catch(_) {}
                     }
                 }
                 // pointercancel: immer alle Locks freigeben (z.B. bei Systemgeste)
@@ -10979,6 +11065,7 @@ const handleFinishOfferClick = () => {
                     activePenCanvasRef.current = null;
                     activePenPointerIdRef.current = null;
                     window.__activeDrawingCanvas = null;
+                    if (e.pointerType === 'pen') { try { window.__penGraceUntil = Date.now() + PEN_GRACE_MS; } catch(_) {} }
                     hideInkTipOverlay();
                     // ctx.restore() um den save() aus startDrawing auszugleichen (Stack-Balance)
                     if (isDrawingRef.current && canvas) {
@@ -11034,9 +11121,25 @@ const handleFinishOfferClick = () => {
                 }
 
                 const ctx = canvas.getContext('2d');
-                // v44.0: Endstück committen – die Live-Kurve endet bei mid(a,b), das letzte
-                // Stück bis zum echten Endpunkt wurde bisher nur vom Tip-Overlay angezeigt.
-                if (finishedStroke && finishedStroke.points.length >= 2) {
+                if (finishedStroke && finishedStroke.tool === 'highlighter' && finishedStroke.points.length >= 1) {
+                    // v44.2: Textmarker-Commit – EIN Pfad, EIN stroke() → gleichmäßige Transparenz.
+                    // ctx-State (destination-over + Marker-Alpha) stammt noch aus startDrawing.
+                    try {
+                        const fp = finishedStroke.points;
+                        ctx.lineWidth = Math.max(0.5, (finishedStroke.baseLineWidth || 2) * 3);
+                        ctx.beginPath();
+                        if (fp.length === 1) {
+                            ctx.fillStyle = finishedStroke.color || '#facc15';
+                            ctx.arc(fp[0].x, fp[0].y, ctx.lineWidth / 2, 0, Math.PI * 2);
+                            ctx.fill();
+                        } else {
+                            buildMidpointPath(ctx, fp);
+                            ctx.stroke();
+                        }
+                    } catch(_) {}
+                } else if (finishedStroke && finishedStroke.points.length >= 2) {
+                    // v44.0: Endstück committen – die Live-Kurve endet bei mid(a,b), das letzte
+                    // Stück bis zum echten Endpunkt wurde bisher nur vom Tip-Overlay angezeigt.
                     try {
                         const fp = finishedStroke.points;
                         const a = fp[fp.length - 2];
@@ -11276,7 +11379,7 @@ const renderStrokesForPrint = (strokes, targetW, targetH, key) => {
             // v44.0: pen/fountain mit Breitenfaktoren → Druckbild = Bildschirmbild
             if (strokeHasVariableWidth(stroke) && stroke.tool !== 'eraser' && stroke.tool !== 'highlighter') {
                 drawVariableWidthPath(ctx, pts, stroke.points, lw);
-            } else if (pts.length >= 3 && stroke.tool !== 'eraser' && stroke.tool !== 'highlighter') {
+            } else if (pts.length >= 3 && stroke.tool !== 'eraser') {
                 // Glatte Midpoint-Kurven statt eckiger lineTo-Kette
                 ctx.moveTo(pts[0].x, pts[0].y);
                 ctx.lineTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
@@ -13993,7 +14096,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v44.0</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v44.2</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
@@ -14119,7 +14222,7 @@ const handlePDFShare = async () => {
                                         return (<div className="sit-progress-bar" style={{display:'flex',alignItems:'center',gap:'10px',flexShrink:0}}><div style={{flex:1,height:'8px',background:'#e2e8f0',borderRadius:'999px',overflow:'hidden',minWidth:80}}><div style={{width:pct+'%',height:'100%',background:pct===100?'#16a34a':'#2563eb',borderRadius:'999px',transition:'width 0.5s ease'}}/></div><span style={{fontSize:'11px',fontWeight:800,color:pct===100?'#16a34a':'#94a3b8',flexShrink:0}}>{pct===100?'✓ Vollständig':filled+'/'+SITUATION_ITEMS.length+' Felder'}</span></div>);
                                     })()}
                                     {/* Grid — IMMER im DOM (auch für Druck wenn Step aktiv) */}
-                                    <div className="custom-scrollbar sit-card-grid" style={{flex:1,display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',alignContent:'start',gridTemplateRows:'repeat(5, minmax(200px, 1fr))',overflowY:'auto',visibility:sitLayoutMode==='step'?'hidden':'visible',pointerEvents:sitLayoutMode==='step'?'none':'auto',paddingBottom:'64px',touchAction:scrollMode?'pan-y':'none'}}>
+                                    <div className="custom-scrollbar sit-card-grid" style={{flex:1,display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',alignContent:'start',gridTemplateRows:'repeat(5, minmax(200px, 1fr))',overflowY:'auto',visibility:sitLayoutMode==='step'?'hidden':'visible',pointerEvents:sitLayoutMode==='step'?'none':'auto',paddingBottom:'64px',touchAction:'pan-y'}}>
                                         {SITUATION_ITEMS.map((item) => {
                                             const sitKey = `sit_${item.id.replace(/\s+/g,'')}`;
                                             const sitRefMap = {Kundenname:sitCanvasRef_Kundenname,Rufnummer:sitCanvasRef_Rufnummer,Anbieter:sitCanvasRef_Anbieter,Hardware:sitCanvasRef_Hardware,Nutzung:sitCanvasRef_Nutzung,Haushalt:sitCanvasRef_Haushalt,'Weitere Produkte':sitCanvasRef_WeitereProdukte,Fernsehen:sitCanvasRef_Fernsehen,WiFi:sitCanvasRef_WiFi,Gesamtkosten:sitCanvasRef_Gesamtkosten};
@@ -14162,7 +14265,7 @@ const handlePDFShare = async () => {
     }
   }}
   style={{position:'absolute',inset:0,width:'100%',height:'100%',padding:'10px 14px',fontSize:textSize==='small'?'24px':textSize==='large'?'44px':'32px',fontWeight:textStyle.bold?800:500,fontStyle:textStyle.italic?'italic':'normal',color:'#1e293b',background:'transparent',border:'none',outline:'none',userSelect:(inputMode==='keyboard')?'text':'none',WebkitUserSelect:(inputMode==='keyboard')?'text':'none',zIndex:(inputMode==='keyboard')?40:5,pointerEvents:(inputMode==='keyboard')?'auto':'none',boxSizing:'border-box',cursor:(inputMode==='keyboard')?'text':'default'}} inputMode={inputMode==='pen'?'none':undefined} placeholder="" readOnly={inputMode==='pen'} onFocus={()=>document.body.classList.add('keyboard-mode-active')} onBlur={()=>{ if(inputMode!=='keyboard') document.body.classList.remove('keyboard-mode-active'); }}/>
-                                                        <canvas ref={sitRef} data-sit-key={sitKey} onPointerDown={(e)=>startDrawing(e,sitRef,sitKey)} onPointerMove={(e)=>draw(e,sitRef,sitKey)} onPointerUp={(e)=>stopDrawing(e,sitRef)} onPointerLeave={(e)=>stopDrawing(e,sitRef)} onPointerCancel={(e)=>stopDrawing(e,sitRef)} className="drawing-canvas" style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:(isWritingEnabled&&inputMode==='pen'&&!scrollMode)?'auto':'none',touchAction:scrollMode?'pan-y':'none',background:'transparent',zIndex:(inputMode==='pen')?30:0}}/>
+                                                        <canvas ref={sitRef} data-sit-key={sitKey} onPointerDown={(e)=>startDrawing(e,sitRef,sitKey)} onPointerMove={(e)=>draw(e,sitRef,sitKey)} onPointerUp={(e)=>stopDrawing(e,sitRef)} onPointerLeave={(e)=>stopDrawing(e,sitRef)} onPointerCancel={(e)=>stopDrawing(e,sitRef)} className="drawing-canvas" style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:(isWritingEnabled&&inputMode==='pen'&&!scrollMode)?'auto':'none',touchAction:'pan-y pinch-zoom',background:'transparent',zIndex:(inputMode==='pen')?30:0}}/>
                                                     </div>
                                                 </div>
                                             );
