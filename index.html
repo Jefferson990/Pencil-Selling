@@ -442,7 +442,7 @@ textarea:not([readonly]) {
     min-height: 60px !important;
   }
   /* Mehr Abstand zwischen den Sidebar-Karten */
-  .sit-aside-inner { gap: 16px !important; padding-bottom: 90px !important; }
+  .sit-aside-inner { gap: 18px !important; padding-bottom: 100px !important; }
   /* Roaming & TV + Kosten (Ist): mehr Innenabstand, größere Buttons */
   .sit-aside-panel .print-hide-roaming > div:last-child,
   .sit-aside-panel .print-hide-kosten > div:last-child {
@@ -561,7 +561,10 @@ body.pdf-share-mode .canvas-image-lock{
     user-select: none;
 }
 body.pdf-share-mode .foto-frame-fixed {
-    height: 170px !important;
+    width: min(320px, 85%) !important;
+    height: auto !important;
+    aspect-ratio: 13 / 9 !important;
+    margin-left: auto !important;
     overflow: hidden !important;
     flex-shrink: 0 !important;
 }
@@ -576,7 +579,10 @@ body.pdf-share-mode .canvas-image-fixed {
 }
 @media print {
     .foto-frame-fixed {
-        height: 170px !important;
+        width: min(320px, 85%) !important;
+        height: auto !important;
+        aspect-ratio: 13 / 9 !important;
+        margin-left: auto !important;
         overflow: hidden !important;
         page-break-inside: avoid !important;
     }
@@ -4935,6 +4941,16 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
   );};
 
         const SpeedModal=({isOpen,onClose,triggerToast,onRecommendation})=>{
+          // === SCHRITT 1: WLAN-Breitband an der Adresse abfragen ===
+          const[maxBroadband,setMaxBroadband]=useState(null);
+          const broadbandOptions=[
+            {dl:16,label:'16 Mbit/s',sub:'DSL Basic'},
+            {dl:50,label:'50 Mbit/s',sub:'DSL / VDSL'},
+            {dl:100,label:'100 Mbit/s',sub:'VDSL / Kabel'},
+            {dl:250,label:'250 Mbit/s',sub:'VDSL Vectoring / Kabel'},
+            {dl:500,label:'500 Mbit/s',sub:'Glasfaser / Kabel'},
+            {dl:1000,label:'1000 Mbit/s',sub:'Glasfaser FTTH'}
+          ];
           const[simDl,setSimDl]=useState(100);
           const[simUl,setSimUl]=useState(40);
           const[tiers,setTiers]=useState([{dl:16,ul:2.4,on:true},{dl:50,ul:10,on:true},{dl:100,ul:40,on:true},{dl:250,ul:40,on:true},{dl:1000,ul:100,on:true}]);
@@ -4960,8 +4976,9 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
           useEffect(()=>{if(rec){setSimDl(rec.dl);setSimUl(Math.max(rec.ul,1));}},[rec]);
           const toggleTier=(i)=>{const newT=[...tiers];newT[i].on=!newT[i].on;setTiers(newT);};
           const updateAct=(k,delta)=>{setActivities(prev=>prev.map(a=>a.k===k?{...a,n:Math.max(0,a.n+delta)}:a));};
-          const addCustomTier=()=>{const val=parseInt(customDl);if(!isNaN(val)&&val>0){const newTier={dl:val,ul:Math.round(val/5),on:true};if(!tiers.find(t=>t.dl===val))setTiers(prev=>[...prev,newTier].sort((a,b)=>a.dl-b.dl));setCustomDl('');}};
-          const handleCopy=()=>{const recText=`${rec?.dl}/${rec?.ul} MBit/s`;copyToClipboard(`Empfehlung: ${recText}`);if(typeof onRecommendation==='function'){onRecommendation(recText);}triggerToast('Speed-Empfehlung kopiert!');if(typeof onClose==='function'){onClose();}};
+          const addCustomTier=()=>{const val=parseInt(customDl);if(!isNaN(val)&&val>0&&(!maxBroadband||val<=maxBroadband)){const newTier={dl:val,ul:Math.round(val/5),on:true};if(!tiers.find(t=>t.dl===val))setTiers(prev=>[...prev,newTier].sort((a,b)=>a.dl-b.dl));setCustomDl('');}};
+          const handleClose=()=>{setMaxBroadband(null);if(typeof onClose==='function')onClose();};
+          const handleCopy=()=>{const recText=`${rec?.dl}/${rec?.ul} MBit/s`;copyToClipboard(`Empfehlung: ${recText}`);if(typeof onRecommendation==='function'){onRecommendation(recText);}triggerToast('Speed-Empfehlung kopiert!');handleClose();};
           const speedPct=Math.max(0,Math.min(100,gaugePct));
           const totalAct=activities.reduce((s,a)=>s+a.n,0);
           if(!isOpen)return null;
@@ -4974,6 +4991,50 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
           const ACCENT='#3b82f6';
           const CHIP_ON_BG=dm?'#1e3a5f':'#dbeafe';
           const CHIP_ON_CLR=dm?'#60a5fa':'#1d4ed8';
+
+          // === SCHRITT 1: Breitband-Abfrage ===
+          if(maxBroadband === null) {
+            return(
+            <div style={{position:'fixed',inset:0,zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.75)',backdropFilter:'blur(8px)',padding:'16px'}}>
+              <div style={{background:BG,width:'100%',maxWidth:'480px',borderRadius:'24px',border:`1px solid ${BORDER}`,boxShadow:'0 32px 80px rgba(0,0,0,0.4)',overflow:'hidden',fontFamily:"system-ui,sans-serif"}}>
+                <div style={{background:'linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0c4a6e 100%)',padding:'28px 28px 22px',position:'relative'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:'14px'}}>
+                    <div style={{width:'44px',height:'44px',borderRadius:'12px',background:'linear-gradient(135deg,#3b82f6,#6366f1)',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 16px rgba(99,102,241,0.5)',flexShrink:0}}>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+                    </div>
+                    <div>
+                      <div style={{fontSize:'10px',fontWeight:'700',color:'rgba(148,163,184,1)',letterSpacing:'0.12em',textTransform:'uppercase',marginBottom:'2px'}}>Zuerst prüfen</div>
+                      <h1 style={{margin:0,fontSize:'22px',fontWeight:'900',color:'#ffffff',letterSpacing:'-0.03em',lineHeight:1}}>Breitband an der Adresse?</h1>
+                    </div>
+                  </div>
+                  <button onClick={()=>{setMaxBroadband(null);onClose();}} style={{position:'absolute',top:'16px',right:'16px',width:'32px',height:'32px',borderRadius:'50%',border:'1px solid rgba(255,255,255,0.2)',background:'rgba(255,255,255,0.1)',color:'#fff',fontSize:'16px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                </div>
+                <div style={{padding:'20px 24px 28px'}}>
+                  <p style={{margin:'0 0 16px',fontSize:'14px',color:TEXT2,lineHeight:1.5}}>Welche maximale Bandbreite ist an der Adresse des Kunden verfügbar? So wird die Simulation realistisch.</p>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                    {broadbandOptions.map(opt=>(
+                      <button key={opt.dl} onClick={()=>{
+                        setMaxBroadband(opt.dl);
+                        // Tiers automatisch generieren: alle Standard-Stufen bis max
+                        const allT=[{dl:16,ul:2.4},{dl:50,ul:10},{dl:100,ul:40},{dl:250,ul:40},{dl:500,ul:50},{dl:1000,ul:100}];
+                        setTiers(allT.filter(t=>t.dl<=opt.dl).map(t=>({...t,on:true})));
+                      }} style={{padding:'14px 12px',borderRadius:'14px',border:`1.5px solid ${BORDER}`,background:PANEL,cursor:'pointer',textAlign:'center',transition:'all 0.15s'}}>
+                        <div style={{fontSize:'20px',fontWeight:'900',color:TEXT,lineHeight:1}}>{opt.label}</div>
+                        <div style={{fontSize:'11px',color:TEXT2,marginTop:'4px',fontWeight:'600'}}>{opt.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:'8px',marginTop:'14px'}}>
+                    <input type="number" placeholder="z.B. 150" min="1" max="10000" style={{flex:1,padding:'12px 14px',borderRadius:'12px',border:`1.5px solid ${BORDER}`,background:PANEL,fontSize:'16px',fontWeight:'700',color:TEXT,outline:'none'}}
+                      onKeyDown={(e)=>{if(e.key==='Enter'){const v=parseInt(e.target.value);if(v>0){setMaxBroadband(v);const allT=[{dl:16,ul:2.4},{dl:50,ul:10},{dl:100,ul:40},{dl:250,ul:40},{dl:500,ul:50},{dl:1000,ul:100}];const filtered=allT.filter(t=>t.dl<=v);if(!filtered.find(t=>t.dl===v))filtered.push({dl:v,ul:Math.round(v/5)});setTiers(filtered.sort((a,b)=>a.dl-b.dl).map(t=>({...t,on:true})));}}}}
+                    />
+                    <button onClick={(e)=>{const inp=e.target.closest('div').querySelector('input');const v=parseInt(inp?.value);if(v>0){setMaxBroadband(v);const allT=[{dl:16,ul:2.4},{dl:50,ul:10},{dl:100,ul:40},{dl:250,ul:40},{dl:500,ul:50},{dl:1000,ul:100}];const filtered=allT.filter(t=>t.dl<=v);if(!filtered.find(t=>t.dl===v))filtered.push({dl:v,ul:Math.round(v/5)});setTiers(filtered.sort((a,b)=>a.dl-b.dl).map(t=>({...t,on:true})));}}} style={{padding:'12px 20px',borderRadius:'12px',border:'none',background:ACCENT,color:'#fff',fontWeight:'800',fontSize:'14px',cursor:'pointer',whiteSpace:'nowrap'}}>Mbit/s →</button>
+                  </div>
+                  <p style={{margin:'8px 0 0',fontSize:'11px',color:TEXT2}}>Eigenen Wert eingeben, falls nicht in der Liste (z.B. 150, 175, 300…)</p>
+                </div>
+              </div>
+            </div>);
+          }
           return(
           <div style={{position:'fixed',inset:0,zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.75)',backdropFilter:'blur(8px)',padding:'16px'}}>
             <style>{`
@@ -5001,6 +5062,10 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                     <div>
                       <div style={{fontSize:'10px',fontWeight:'700',color:'rgba(148,163,184,1)',letterSpacing:'0.12em',textTransform:'uppercase',marginBottom:'1px'}}>Interaktiver</div>
                       <h1 style={{margin:0,fontSize:'24px',fontWeight:'900',color:'#ffffff',letterSpacing:'-0.03em',lineHeight:1}}>Speed-Rechner</h1>
+                      {maxBroadband && <div style={{display:'flex',alignItems:'center',gap:'6px',marginTop:'4px'}}>
+                        <span style={{fontSize:'11px',color:'rgba(148,163,184,0.9)',fontWeight:'600'}}>📡 Max. {maxBroadband} Mbit/s an der Adresse</span>
+                        <button onClick={()=>setMaxBroadband(null)} style={{fontSize:'10px',color:'#60a5fa',background:'none',border:'none',cursor:'pointer',textDecoration:'underline',padding:0}}>ändern</button>
+                      </div>}
                     </div>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
@@ -5008,7 +5073,7 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                       <div style={{fontSize:'9px',color:'rgba(148,163,184,1)',fontWeight:'700',letterSpacing:'0.1em',textTransform:'uppercase'}}>Empfehlung</div>
                       <div style={{fontSize:'20px',fontWeight:'900',color:'#60a5fa',letterSpacing:'-0.02em',lineHeight:1.1}}>{rec.dl} <span style={{fontSize:'10px',color:'rgba(148,163,184,0.8)'}}>Mbit/s</span></div>
                     </div>}
-                    <button onClick={onClose} style={{width:'34px',height:'34px',borderRadius:'10px',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'#94a3b8',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'16px',lineHeight:1,flexShrink:0}}>✕</button>
+                    <button onClick={handleClose} style={{width:'34px',height:'34px',borderRadius:'10px',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'#94a3b8',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'16px',lineHeight:1,flexShrink:0}}>✕</button>
                   </div>
                 </div>
               </div>
@@ -5036,7 +5101,8 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                       </div>
                     ))}
                   </div>
-                  <div style={{marginTop:'16px',paddingTop:'14px',borderTop:`1px solid ${BORDER}`}}>
+                  {/* Tarif-Auswahl nur zeigen wenn KEIN Breitband vorab gewählt wurde (Fallback) */}
+                  {!maxBroadband && <div style={{marginTop:'16px',paddingTop:'14px',borderTop:`1px solid ${BORDER}`}}>
                     <h3 style={{margin:'0 0 8px 0',fontSize:'11px',fontWeight:'800',color:TEXT,letterSpacing:'0.08em',textTransform:'uppercase'}}>Verfügbare Tarife</h3>
                     <div style={{display:'flex',flexWrap:'wrap',gap:'5px'}}>
                       {tiers.map((t,i)=>(
@@ -5047,7 +5113,7 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                         <button onClick={addCustomTier} style={{width:'18px',height:'18px',borderRadius:'50%',background:ACCENT,color:'white',border:'none',cursor:'pointer',fontSize:'13px',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:'900',lineHeight:1}}>+</button>
                       </div>
                     </div>
-                  </div>
+                  </div>}
                 </div>
                 <div style={{padding:'20px 12px',display:'flex',flexDirection:'column',alignItems:'center',gap:'12px',borderRight:`1px solid ${BORDER}`}}>
                   <div style={{position:'relative',width:'200px',height:'200px',flexShrink:0}}>
@@ -7747,6 +7813,145 @@ const highResHTML = buildHighResBundleHTML(d);
         const QuestionModal = ({ isOpen, onClose, category, question, onNextQuestion }) => { if (!isOpen) return null; return (<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"><div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6"><h3 className="text-xl font-bold mb-4">Frage zu: {category}</h3><p className="text-lg mb-6">{question}</p><div className="flex justify-end gap-2"><button onClick={onNextQuestion} className="px-4 py-2 border rounded">Nächste</button><button onClick={onClose} className="px-4 py-2 bg-blue-600 text-white rounded">OK</button></div></div></div>); };
 
         // --- OFFER CANVAS (Redraw Patch Applied) ---
+// === v44.0 TINTEN-ENGINE: Werkzeug-Dynamik (Druck + Geschwindigkeit → Strichbreite) ===
+// pen      = Stift: moderate Druck-/Tempo-Reaktion (lebendige, aber kontrollierte Linie)
+// fountain = Füller: starke Reaktion – langsam/fest = breit, schnell/leicht = dünn (Tinten-Look)
+// ballpen  = Kugelschreiber: konstant dünn, nur Transparenz-Charakter (echtes Kuli-Gefühl)
+function getInkToolDynamics(toolId) {
+    if (toolId === 'fountain') return { pGain: 0.70, vGain: 0.55, fMin: 0.55, fMax: 1.50, smooth: 0.22 };
+    if (toolId === 'pen')      return { pGain: 0.40, vGain: 0.18, fMin: 0.78, fMax: 1.22, smooth: 0.30 };
+    return null; // ballpen / eraser / highlighter: konstante Breite
+}
+// Breitenfaktor aus Druck (0..1, 0.5 neutral) und normiertem Tempo (0..1, 0.35 neutral)
+function computeInkWidthFactor(dyn, pressure, velNorm) {
+    if (!dyn) return 1;
+    const pf = 1 + (pressure - 0.5) * 2 * dyn.pGain;
+    const vf = 1 + (0.35 - velNorm) * 2 * dyn.vGain;
+    return Math.max(dyn.fMin, Math.min(dyn.fMax, pf * vf));
+}
+// Hat der Stroke pro Punkt gespeicherte Breitenfaktoren (wf)?
+function strokeHasVariableWidth(stroke) {
+    return !!(stroke && (stroke.tool === 'pen' || stroke.tool === 'fountain')
+        && Array.isArray(stroke.points) && stroke.points.length > 1
+        && stroke.points.some(p => p && p.wf != null));
+}
+// Variable Strichbreite rendern: Midpoint-Quadratic-Segmente, lineWidth pro Segment.
+// pts = (skalierte) Koordinaten, rawPts = Original-Punkte mit wf, baseLW = Ziel-Basisbreite.
+// Identische Geometrie wie das Live-Rendering → Redraw sieht aus wie beim Schreiben.
+function drawVariableWidthPath(ctx, pts, rawPts, baseLW) {
+    const wf = (i) => { const p = rawPts[Math.min(i, rawPts.length - 1)]; return (p && p.wf != null) ? p.wf : 1; };
+    if (!pts || pts.length === 0) return;
+    if (pts.length === 1) {
+        ctx.beginPath();
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.arc(pts[0].x, pts[0].y, Math.max(0.5, baseLW * wf(0)) / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        return;
+    }
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    let prevX = pts[0].x, prevY = pts[0].y;
+    for (let i = 1; i < pts.length; i++) {
+        const isLast = (i === pts.length - 1);
+        const midX = isLast ? pts[i].x : (pts[i].x + pts[i + 1].x) / 2;
+        const midY = isLast ? pts[i].y : (pts[i].y + pts[i + 1].y) / 2;
+        ctx.beginPath();
+        ctx.lineWidth = Math.max(0.5, baseLW * ((wf(i - 1) + wf(i)) / 2));
+        ctx.moveTo(prevX, prevY);
+        if (isLast) { ctx.lineTo(midX, midY); } else { ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY); }
+        ctx.stroke();
+        prevX = midX; prevY = midY;
+    }
+    ctx.beginPath(); // Pfad leeren, damit nachfolgendes ctx.stroke() nichts doppelt zeichnet
+}
+
+// === v44.0 LIVE-TIP OVERLAY: Latenz-Kaschierung wie Samsung Notes / GoodNotes ===
+// Die "echte" Tinte endet konstruktionsbedingt am Mittelpunkt der letzten beiden Punkte.
+// Das Overlay zeichnet das fehlende letzte Stück + Stylus-Prediction bis zur Stiftspitze
+// auf ein fixiertes Canvas ÜBER dem Zeichen-Canvas. Wird pro Frame neu gezeichnet und
+// beim Abheben entfernt → gespeicherte Striche/Redraw bleiben 100% unverändert.
+function getInkTipOverlay() {
+    let ov = window.__inkTipOverlay;
+    if (!ov) {
+        ov = document.createElement('canvas');
+        ov.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none;z-index:99999;display:none;';
+        document.body.appendChild(ov);
+        window.__inkTipOverlay = ov;
+    }
+    return ov;
+}
+function positionInkTipOverlay(canvas) {
+    try {
+        const ov = getInkTipOverlay();
+        const rect = canvas.getBoundingClientRect();
+        if (!rect || rect.width < 2 || rect.height < 2) return null;
+        const dpr = window.devicePixelRatio || 1;
+        ov.style.left = rect.left + 'px';
+        ov.style.top = rect.top + 'px';
+        ov.style.width = rect.width + 'px';
+        ov.style.height = rect.height + 'px';
+        const w = Math.max(1, Math.round(rect.width * dpr));
+        const h = Math.max(1, Math.round(rect.height * dpr));
+        if (ov.width !== w || ov.height !== h) { ov.width = w; ov.height = h; }
+        ov.__rect = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+        ov.__dpr = dpr;
+        ov.style.display = 'block';
+        const ctx = ov.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, rect.width, rect.height);
+        return ov;
+    } catch (_) { return null; }
+}
+function hideInkTipOverlay() {
+    try {
+        const ov = window.__inkTipOverlay;
+        if (!ov) return;
+        const ctx = ov.getContext('2d');
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, ov.width, ov.height);
+        ov.style.display = 'none';
+        ov.__rect = null;
+    } catch (_) {}
+}
+function renderInkTip(e, stroke) {
+    try {
+        const ov = window.__inkTipOverlay;
+        if (!ov || ov.style.display === 'none' || !ov.__rect) return;
+        const pts = stroke && stroke.points;
+        if (!pts || pts.length < 2) return;
+        const rect = ov.__rect;
+        const dpr = ov.__dpr || 1;
+        const ctx = ov.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, rect.width, rect.height);
+        const a = pts[pts.length - 2];
+        const b = pts[pts.length - 1];
+        ctx.strokeStyle = stroke.color || '#1d4ed8';
+        ctx.globalAlpha = stroke.opacity != null ? stroke.opacity : 1;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(0.5, b.width != null ? b.width : (stroke.baseLineWidth || 2));
+        ctx.beginPath();
+        // Echte Tinte endet bei mid(a,b) → Tip-Segment bis zum echten letzten Punkt
+        ctx.moveTo((a.x + b.x) / 2, (a.y + b.y) / 2);
+        ctx.lineTo(b.x, b.y);
+        // Stylus-Prediction (Safari/Chrome): max. 2 Punkte, max. 18px – kein Überschießen
+        let predicted = [];
+        try { if (e && e.getPredictedEvents) predicted = e.getPredictedEvents() || []; } catch (_) {}
+        let used = 0;
+        for (const pe of predicted) {
+            if (used >= 2) break;
+            const cx = pe.clientX - rect.left;
+            const cy = pe.clientY - rect.top;
+            const dx = cx - b.x, dy = cy - b.y;
+            if ((dx * dx + dy * dy) > 324) break; // 18px²
+            ctx.lineTo(cx, cy);
+            used++;
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+    } catch (_) {}
+}
+
         const redrawCanvas = (canvas, strokes, scaleFactor = 1, key = '') => {
             if (!canvas) return;
             const dpr = window.devicePixelRatio || 1;
@@ -7859,19 +8064,24 @@ const highResHTML = buildHighResBundleHTML(d);
                     const pts = (isOfferKey && offerScaleX != null)
                         ? stroke.points.map(p => ({ x: p.x * offerScaleX, y: p.y * offerScaleY }))
                         : stroke.points.map(p => ({ x: p.x * responsiveScaleFactor, y: p.y * responsiveScaleFactor }));
-                    const isSmooth = (stroke.tool === 'fountain' || stroke.tool === 'ballpen');
-                    if (isSmooth && pts.length >= 3) {
-                        ctx.moveTo(pts[0].x, pts[0].y);
-                        ctx.lineTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
-                        for (let i = 1; i < pts.length - 1; i++) {
-                            const mx = (pts[i].x + pts[i + 1].x) / 2;
-                            const my = (pts[i].y + pts[i + 1].y) / 2;
-                            ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-                        }
-                        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+                    // v44.0: pen/fountain mit gespeicherten Breitenfaktoren → identisch zum Live-Bild
+                    if (strokeHasVariableWidth(stroke) && stroke.tool !== 'eraser' && stroke.tool !== 'highlighter') {
+                        drawVariableWidthPath(ctx, pts, stroke.points, finalLineWidth);
                     } else {
-                        ctx.moveTo(pts[0].x, pts[0].y);
-                        pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+                        const isSmooth = (stroke.tool === 'fountain' || stroke.tool === 'ballpen' || stroke.tool === 'pen');
+                        if (isSmooth && pts.length >= 3) {
+                            ctx.moveTo(pts[0].x, pts[0].y);
+                            ctx.lineTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
+                            for (let i = 1; i < pts.length - 1; i++) {
+                                const mx = (pts[i].x + pts[i + 1].x) / 2;
+                                const my = (pts[i].y + pts[i + 1].y) / 2;
+                                ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+                            }
+                            ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+                        } else {
+                            ctx.moveTo(pts[0].x, pts[0].y);
+                            pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+                        }
                     }
                 }
                 ctx.stroke();
@@ -8248,8 +8458,8 @@ const highResHTML = buildHighResBundleHTML(d);
         )}
         {hasOverlay && !(statusKey === 'offer1' || statusKey === 'offer2' || statusKey === 'offer3') && (<button onClick={(onClearOverlay||onClearImage)} className="p-1.5 rounded-full bg-red-50 text-red-600 hover:bg-red-100 transition-colors" title="Inhalt entfernen"><Icon d={ICONS.Trash} size={14}/></button>)}</div></div><div className="flex items-center gap-2 mt-2"><span className="text-[10px] font-medium text-slate-500 mr-1 uppercase">Status:</span><button data-print-keep="1" onClick={() => toggleStatus('open')} className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1 border ${isOpen ? 'bg-red-500 text-white shadow-lg shadow-red-200/50' : 'text-slate-500 bg-red-50 border-red-200 hover:bg-red-100'}`}>{isOpen ? <Icon d={ICONS.AlertCircle} size={10}/> : null} Offen</button><button data-print-keep="1" onClick={() => toggleStatus('closed')} className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1 border ${isClosed ? 'bg-green-500 text-white shadow-lg shadow-green-200/50' : 'text-slate-500 bg-green-50 border-green-200 hover:bg-green-100'}`}>{isClosed ? <Icon d={ICONS.CheckCircle} size={10}/> : null} Abgeschlossen</button></div>
 
-</div><div className="canvas-lines"></div>{htmlOverlay && (<div ref={overlayOuterRef} className="offer-overlay-outer" style={{ position: 'relative', width: '100%', height: overlayBoxHeight ? overlayBoxHeight + 'px' : 'auto', overflow: 'hidden', zIndex: 45, background: '#ffffff' }}><div ref={overlayWrapRef} className="offer-html-overlay-wrap" style={{ position: 'absolute', top: 0, left: 0, width: (100 / overlayFitScale) + '%', boxSizing: 'border-box', padding: '0', margin: '0', transform: `scale(${overlayFitScale})`, transformOrigin: 'top left', pointerEvents: 'none', userSelect: 'none', background: '#ffffff', color: '#1e293b', borderRadius: '8px' }} dangerouslySetInnerHTML={{ __html: htmlOverlay }} /></div>)}<div className="relative flex-1 w-full h-full min-h-[100px] overflow-hidden" style={htmlOverlay ? {display:'none'} : {}}><textarea value={textValue || ''} onChange={(e) => handleTextChange(statusKey, e.target.value)} className={getOfferTextClasses()} style={{ ...getOfferTextStyle(), position:'absolute', inset:0, width:'100%', height:'100%', zIndex: inputMode === 'keyboard' ? 30 : 10, pointerEvents: inputMode === 'keyboard' ? 'auto' : 'none', userSelect: inputMode === 'keyboard' ? 'text' : 'none', WebkitUserSelect: inputMode === 'keyboard' ? 'text' : 'none' }} inputMode={inputMode === 'pen' ? 'none' : undefined} placeholder={inputMode === 'keyboard' ? 'Hier tippen...' : ''} readOnly={inputMode === 'pen'} /><canvas ref={canvasRef} onPointerDown={(e) => { e.preventDefault(); startDrawing(e, canvasRef, statusKey); }} onPointerMove={(e) => draw(e, canvasRef, statusKey)} onPointerUp={(e) => stopDrawing(e, canvasRef)} onPointerLeave={(e) => stopDrawing(e, canvasRef)} onPointerCancel={(e) => stopDrawing(e, canvasRef)} className="w-full h-full drawing-canvas absolute inset-0" style={{zIndex: inputMode === 'pen' ? 25 : 5, pointerEvents: inputMode === 'pen' ? 'auto' : 'none', touchAction: 'none'}}/>
-            </div>{image && !htmlOverlay && (<div className="foto-frame-fixed shrink-0" style={{ width:'100%', height:'150px', overflow:'hidden', background:'#f1f5f9', borderTop:'1px solid #e2e8f0', position:'relative', flexShrink:0 }}><img src={image} alt="Kundenfoto" className="canvas-image-fixed" style={{ width:'100%', height:'100%', objectFit:'cover', objectPosition:'center center', display:'block', pointerEvents:'none', userSelect:'none' }}/></div>)}</div>); });
+</div><div className="canvas-lines"></div>{htmlOverlay && (<div ref={overlayOuterRef} className="offer-overlay-outer" style={{ position: 'relative', width: '100%', height: overlayBoxHeight ? overlayBoxHeight + 'px' : 'auto', overflow: 'hidden', zIndex: 45, background: '#ffffff' }}><div ref={overlayWrapRef} className="offer-html-overlay-wrap" style={{ position: 'absolute', top: 0, left: 0, width: (100 / overlayFitScale) + '%', boxSizing: 'border-box', padding: '0', margin: '0', transform: `scale(${overlayFitScale})`, transformOrigin: 'top left', pointerEvents: 'none', userSelect: 'none', background: '#ffffff', color: '#1e293b', borderRadius: '8px' }} dangerouslySetInnerHTML={{ __html: htmlOverlay }} /></div>)}<div className="relative flex-1 w-full h-full min-h-[100px] overflow-hidden" style={htmlOverlay ? {display:'none'} : {}}><textarea value={textValue || ''} onChange={(e) => handleTextChange(statusKey, e.target.value)} className={getOfferTextClasses()} style={{ ...getOfferTextStyle(), position:'absolute', inset:0, width:'100%', height:'100%', zIndex: inputMode === 'keyboard' ? 30 : 10, pointerEvents: inputMode === 'keyboard' ? 'auto' : 'none', userSelect: inputMode === 'keyboard' ? 'text' : 'none', WebkitUserSelect: inputMode === 'keyboard' ? 'text' : 'none' }} inputMode={inputMode === 'pen' ? 'none' : undefined} placeholder={inputMode === 'keyboard' ? 'Hier tippen...' : ''} readOnly={inputMode === 'pen'} /><canvas ref={canvasRef} data-stroke-key={statusKey} onPointerDown={(e) => { e.preventDefault(); startDrawing(e, canvasRef, statusKey); }} onPointerMove={(e) => draw(e, canvasRef, statusKey)} onPointerUp={(e) => stopDrawing(e, canvasRef)} onPointerLeave={(e) => stopDrawing(e, canvasRef)} onPointerCancel={(e) => stopDrawing(e, canvasRef)} className="w-full h-full drawing-canvas absolute inset-0" style={{zIndex: inputMode === 'pen' ? 25 : 5, pointerEvents: inputMode === 'pen' ? 'auto' : 'none', touchAction: 'none'}}/>
+            </div>{image && !htmlOverlay && (<div className="foto-frame-fixed shrink-0" style={{ width:'min(470px, 72%)', aspectRatio:'13 / 9', minHeight:'200px', overflow:'hidden', background:'#ffffff', border:'6px solid #ffffff', borderRadius:'10px', boxShadow:'0 8px 22px rgba(15,23,42,0.20)', position:'relative', flexShrink:0, marginLeft:'auto', marginRight:'14px', marginBottom:'12px' }}><img src={image} alt="Kundenfoto" className="canvas-image-fixed" style={{ width:'100%', height:'100%', objectFit:'cover', objectPosition:'center center', display:'block', pointerEvents:'none', userSelect:'none', borderRadius:'4px' }}/></div>)}</div>); });
         
         // --- SMALL INPUT CANVAS (Patched with drawing-canvas class) ---
         
@@ -8482,6 +8692,9 @@ const PA_UPLOAD_URL = 'PASTE_POWER_AUTOMATE_FLOW_URL_HERE';
                 offer1: [], offer2: [], offer3: [],
                 cost_einmalig: [], cost_monatlich1: [], cost_monatlich2: [], cost_smartphone: [], agent_name: [], date_field: [], offer_valid_until: []
             });
+            // PDF-Druck: Strokes global verfügbar machen, damit der Export die Handschrift
+            // passend für die Druck-Kachelgröße NEU rendern kann (statt Bitmap zu verzerren).
+            window.__psStrokes = drawnStrokes;
 
             const isDrawingRef = useRef(false);
             const currentStrokeRef = useRef(null); 
@@ -8841,6 +9054,8 @@ const handleOpenStats = () => { setShowPinLock(true); };
             const [showFinishTypeModal, setShowFinishTypeModal] = useState(false); // NEW MODAL STATE
             
             const [showReferralModal, setShowReferralModal] = useState(false);
+            // PDF fertig → Teilen-Dialog mit frischer Nutzer-Geste (iOS-Gestenregel)
+            const [pdfShareReady, setPdfShareReady] = useState(null);
             const [showFolgeterminModal, setShowFolgeterminModal] = useState(false);
             const pendingPostSignature = React.useRef(null); // Funktion die nach Folgetermin läuft
             const [showValidityModal, setShowValidityModal] = useState(false);
@@ -9805,10 +10020,18 @@ const handleFinishOfferClick = () => {
 
                 // Wenn Kunde unterschrieben hat: PDF-Export (Empfohlen) + danach ReferralModal
                 if (customerSignature) {
+                    // === PDF-Dateiname = Rufnummer (MSISDN) des Kunden ===
+                    // Kleines Popup nach Abschluss: PDF heißt dann z.B. "Angebot 0176xxxxxxx.pdf"
+                    let __pdfName = `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
+                    try {
+                        const ms = window.prompt('📱 Bitte MSISDN / Rufnummer des Kunden eingeben:\n(Die PDF-Datei wird danach benannt)', '');
+                        const cleanMs = (ms || '').replace(/[^0-9+]/g, '').trim();
+                        if (cleanMs) __pdfName = `Angebot ${cleanMs}.pdf`;
+                    } catch(e) {}
                     if (!runOnlyWithOfferValidity(() => {
                         triggerToast('PDF wird erstellt… einen Moment.');
                         createPrintLookPdfBlob(triggerToast, ensurePrintHeaders).then((blob) => {
-                            const pdfFileName = `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
+                            const pdfFileName = __pdfName;
                             const url = URL.createObjectURL(blob);
                             window.open(url, '_blank');
                             setTimeout(() => URL.revokeObjectURL(url), 120000);
@@ -9821,41 +10044,40 @@ const handleFinishOfferClick = () => {
                         triggerToast('PDF wird erstellt… einen Moment.');
                         try {
                             const blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders);
-                            const pdfFileName = `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
-                            // Web Share API → natives System-Teilen (WhatsApp, Mail, Drucken, etc.)
-                            if (navigator.canShare && navigator.canShare({ files: [new File([blob], pdfFileName, { type: 'application/pdf' })] })) {
+                            const pdfFileName = __pdfName;
+                            const pdfFile = new File([blob], pdfFileName, { type: 'application/pdf' });
+                            window.__lastPdfBlob = blob; window.__lastPdfFile = pdfFile;
+                            // Web Share API → natives System-Teilen. iOS-Gestenregel: schlägt das
+                            // Direkt-Teilen nach langer Erzeugung fehl, kommt der "Jetzt teilen"-Dialog.
+                            if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
                                 try {
-                                    await navigator.share({
-                                        title: 'Angebot',
-                                        text: 'Ihr persönliches Angebot',
-                                        files: [new File([blob], pdfFileName, { type: 'application/pdf' })]
-                                    });
+                                    await navigator.share({ title: 'Angebot', text: 'Ihr persönliches Angebot', files: [pdfFile] });
                                     triggerToast('✅ PDF geteilt.');
+                                    setTimeout(() => setShowReferralModal(true), 400);
+                                    return;
                                 } catch(shareErr) {
-                                    if (shareErr.name !== 'AbortError') {
-                                        // Teilen abgebrochen oder fehlgeschlagen → Tab öffnen als Fallback
-                                        const url = URL.createObjectURL(blob);
-                                        window.open(url, '_blank');
-                                        setTimeout(() => URL.revokeObjectURL(url), 120000);
-                                        triggerToast('✅ PDF geöffnet – drucken oder speichern.');
+                                    if (shareErr && shareErr.name === 'AbortError') {
+                                        setTimeout(() => setShowReferralModal(true), 400);
+                                        return;
                                     }
+                                    setPdfShareReady(pdfFile);
+                                    return;
                                 }
-                            } else {
-                                // Kein Web Share (Desktop Firefox etc.) → neuer Tab
-                                const url = URL.createObjectURL(blob);
-                                const pdfTab = window.open(url, '_blank');
-                                if (!pdfTab) {
-                                    const a = document.createElement('a');
-                                    a.href = url; a.download = pdfFileName;
-                                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-                                }
-                                setTimeout(() => URL.revokeObjectURL(url), 120000);
-                                triggerToast('✅ PDF geöffnet – drucken oder speichern.');
                             }
+                            // Kein Web Share (Desktop Firefox etc.) → neuer Tab / Download mit MSISDN-Namen
+                            const url = URL.createObjectURL(blob);
+                            const pdfTab = window.open(url, '_blank');
+                            if (!pdfTab) {
+                                const a = document.createElement('a');
+                                a.href = url; a.download = pdfFileName;
+                                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                            }
+                            setTimeout(() => URL.revokeObjectURL(url), 120000);
+                            triggerToast('✅ PDF geöffnet – drucken oder speichern.');
+                            setTimeout(() => setShowReferralModal(true), 400);
                         } catch(e) {
                             triggerToast('PDF-Fehler: ' + (e && e.message ? e.message : 'Unbekannt'));
                         }
-                        setTimeout(() => setShowReferralModal(true), 400);
                     })();
                     return;
                 }
@@ -10433,6 +10655,7 @@ const handleFinishOfferClick = () => {
                     isDrawingRef.current = false;
                     currentStrokeRef.current = null;
                     window.__activeDrawingCanvas = null;
+                    hideInkTipOverlay();
                 }
 
                 const pointerType = e.pointerType; // 'pen' | 'touch' | 'mouse'
@@ -10530,24 +10753,35 @@ const handleFinishOfferClick = () => {
                 const widthScale = isCostCanvas ? 0.55 : 1.0;
                 const finalLineWidth = (visualBaseW / zoomLevel) * widthScale;
 
-                // initWidth: KONSTANT = finalLineWidth (keine Druckvariation beim Start)
-                const initWidth = finalLineWidth;
-                const pressure = 0.5; // Neutral-Wert – wird in draw() live gemessen
+                // === v44.0 TINTEN-ENGINE: Startbreite aus echtem Stylus-Druck ===
+                const dynStart = (currentTool !== 'eraser' && currentTool !== 'highlighter') ? getInkToolDynamics(currentTool) : null;
+                const pressure = (e.pointerType === 'pen' && e.pressure > 0) ? e.pressure : 0.5;
+                const wf0 = dynStart ? computeInkWidthFactor(dynStart, pressure, 0.35) : 1;
+                const initWidth = Math.max(0.5, finalLineWidth * wf0);
 
                 const newStroke = {
                     tool: currentTool,
                     color: currentColor,
                     width: tune.width,
                     opacity: currentOpacity,
-                    points: [{ x, y, pressure, width: initWidth }],
+                    points: [{ x, y, pressure, width: initWidth, wf: wf0 }],
                     baseWidth: strokeBaseWidth,
                     baseHeight: strokeBaseHeight,
                     baseLineWidth: finalLineWidth,
                     eraserMult: (currentTool === 'eraser' ? (eraserSizeRef.current || 4) : 4),
                     lastWidth: initWidth,
+                    lastWf: wf0,
+                    smoothedPressure: pressure,
                     lastTime: e.timeStamp,
-                    smoothedVelocity: 0   // startet bei 0 → Ramp-Up greift in draw()
+                    smoothedVelocity: 0
                 };
+
+                // Live-Tip-Overlay über dem aktiven Canvas positionieren (Latenz-Kaschierung)
+                if (currentTool !== 'eraser' && currentTool !== 'highlighter') {
+                    positionInkTipOverlay(canvas);
+                } else {
+                    hideInkTipOverlay();
+                }
 
                 // setPointerCapture: Pencil/Stylus-Events auch außerhalb des Canvas empfangen
                 try {
@@ -10606,6 +10840,7 @@ const handleFinishOfferClick = () => {
                         isDrawingRef.current = false;
                         currentStrokeRef.current = null;
                         canvas.style.touchAction = 'pan-x pan-y pinch-zoom';
+                        hideInkTipOverlay();
                     }
                     return;
                 }
@@ -10616,11 +10851,13 @@ const handleFinishOfferClick = () => {
                 e.preventDefault();
 
                 // Coalesced Events: alle Zwischenpunkte seit letztem Frame nutzen (minimiert Latenz)
-                // iOS Safari: getCoalescedEvents kann leeres Array zurückgeben → Fallback auf [e]
-                let events = [e];
+                // WICHTIG (v44.0): React-SyntheticEvents haben KEIN getCoalescedEvents →
+                // immer auf das native PointerEvent zugreifen, sonst war Coalescing nie aktiv!
+                const nativeEv = e.nativeEvent || e;
+                let events = [nativeEv];
                 try {
-                    if (e.getCoalescedEvents) {
-                        const coalesced = e.getCoalescedEvents();
+                    if (nativeEv.getCoalescedEvents) {
+                        const coalesced = nativeEv.getCoalescedEvents();
                         if (coalesced && coalesced.length > 0) events = coalesced;
                     }
                 } catch(_) {}
@@ -10636,19 +10873,43 @@ const handleFinishOfferClick = () => {
                     const x = cssX;
                     const y = cssY;
 
-                    // === GLEICHMÄSSIGE LINIENSTÄRKE ===
-                    // KONSTANTE Breite: exakt die eingestellte Dicke, sofort und gleichbleibend.
-                    // Kein Druck-Faktor, kein Smoothing-Aufbau → Live-Linie = Redraw-Linie (kein "wird dicker").
-                    const pressure = 0.5; // nur für Punkt-Speicherung, beeinflusst Breite NICHT
-
+                    // === v44.0 TINTEN-ENGINE: Breite aus Druck + Schreibtempo ===
+                    // pen/fountain: lebendige Linie (Füller deutlich stärker), ballpen: konstant.
+                    // wf (Breitenfaktor) wird pro Punkt gespeichert → Redraw rendert IDENTISCH.
                     const pts = stroke.points;
                     const baseLW = stroke.baseLineWidth || 2;
-                    const smoothedWidth = baseLW;   // konstant
-                    stroke.lastWidth = baseLW;
+                    const dyn = (currentTool !== 'eraser' && currentTool !== 'highlighter') ? getInkToolDynamics(currentTool) : null;
+
+                    // Echter Stylus-Druck (Apple Pencil / S Pen); Fallback neutral 0.5
+                    const prRaw = (ev.pointerType === 'pen' && ev.pressure > 0) ? ev.pressure : 0.5;
+                    stroke.smoothedPressure = (stroke.smoothedPressure == null) ? prRaw : (stroke.smoothedPressure * 0.6 + prRaw * 0.4);
+                    const pressure = stroke.smoothedPressure;
+
+                    // Schreibtempo (px/ms), exponentiell geglättet
+                    const lastPt = pts.length > 0 ? pts[pts.length - 1] : null;
+                    const dt = Math.max(1, (ev.timeStamp || 0) - (stroke.lastTime || ev.timeStamp || 0));
+                    const dist = lastPt ? Math.hypot(x - lastPt.x, y - lastPt.y) : 0;
+                    const vel = dist / dt;
+                    stroke.smoothedVelocity = (stroke.smoothedVelocity || 0) * 0.65 + vel * 0.35;
+                    const velNorm = Math.min(1, stroke.smoothedVelocity / 1.4);
+
+                    // Ziel-Faktor → geglättet annähern (keine Breitensprünge)
+                    let wf = 1;
+                    if (dyn) {
+                        const wfTarget = computeInkWidthFactor(dyn, pressure, velNorm);
+                        const prevWf = (stroke.lastWf == null) ? wfTarget : stroke.lastWf;
+                        let next = prevWf + (wfTarget - prevWf) * dyn.smooth;
+                        // Max. ±0.06 Änderung pro Punkt (bei 120Hz immer noch sehr reaktiv)
+                        next = Math.max(prevWf - 0.06, Math.min(prevWf + 0.06, next));
+                        wf = Math.max(dyn.fMin, Math.min(dyn.fMax, next));
+                        stroke.lastWf = wf;
+                    }
+                    const smoothedWidth = Math.max(0.5, baseLW * wf);
+                    stroke.lastWidth = smoothedWidth;
 
                     if (pts.length > 0) stroke.lastTime = ev.timeStamp;
 
-                    pts.push({ x, y, pressure, width: smoothedWidth });
+                    pts.push({ x, y, pressure: prRaw, width: smoothedWidth, wf });
 
                     // Live-Bezier-Rendering: Quadratic Curve für flüssige Linien
                     if (pts.length >= 3) {
@@ -10660,8 +10921,11 @@ const handleFinishOfferClick = () => {
                         const mx = (p1.x + p2.x) / 2;
                         const my = (p1.y + p2.y) / 2;
 
+                        // Segment-Breite = Mittel der beiden Punktbreiten (weiche Übergänge)
+                        const segW = ((p1.width != null ? p1.width : smoothedWidth) + (p2.width != null ? p2.width : smoothedWidth)) / 2;
+
                         ctx.save();
-                        ctx.lineWidth = Math.max(0.5, smoothedWidth);
+                        ctx.lineWidth = Math.max(0.5, segW);
                         ctx.beginPath();
                         ctx.moveTo((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
                         ctx.quadraticCurveTo(p1.x, p1.y, mx, my);
@@ -10688,6 +10952,11 @@ const handleFinishOfferClick = () => {
                         ctx.restore();
                     }
                 }
+
+                // === v44.0 LIVE-TIP: fehlendes letztes Stück + Prediction bis zur Stiftspitze ===
+                if (currentTool !== 'eraser' && currentTool !== 'highlighter') {
+                    renderInkTip(nativeEv, stroke);
+                }
             }, []);
 
             const stopDrawing = useCallback((e, ref) => {
@@ -10710,6 +10979,7 @@ const handleFinishOfferClick = () => {
                     activePenCanvasRef.current = null;
                     activePenPointerIdRef.current = null;
                     window.__activeDrawingCanvas = null;
+                    hideInkTipOverlay();
                     // ctx.restore() um den save() aus startDrawing auszugleichen (Stack-Balance)
                     if (isDrawingRef.current && canvas) {
                         try { canvas.getContext('2d').restore(); } catch(_) {}
@@ -10724,6 +10994,7 @@ const handleFinishOfferClick = () => {
 
                 isDrawingRef.current = false;
                 window.__activeDrawingCanvas = null; // Redraw-Sperre aufheben
+                hideInkTipOverlay(); // v44.0: Live-Tip entfernen (Tinte ist bereits committet)
                 const finishedStroke = currentStrokeRef.current;
                 currentStrokeRef.current = null;
 
@@ -10763,6 +11034,20 @@ const handleFinishOfferClick = () => {
                 }
 
                 const ctx = canvas.getContext('2d');
+                // v44.0: Endstück committen – die Live-Kurve endet bei mid(a,b), das letzte
+                // Stück bis zum echten Endpunkt wurde bisher nur vom Tip-Overlay angezeigt.
+                if (finishedStroke && finishedStroke.points.length >= 2) {
+                    try {
+                        const fp = finishedStroke.points;
+                        const a = fp[fp.length - 2];
+                        const b = fp[fp.length - 1];
+                        ctx.lineWidth = Math.max(0.5, b.width != null ? b.width : (finishedStroke.baseLineWidth || 2));
+                        ctx.beginPath();
+                        ctx.moveTo((a.x + b.x) / 2, (a.y + b.y) / 2);
+                        ctx.lineTo(b.x, b.y);
+                        ctx.stroke();
+                    } catch(_) {}
+                }
                 ctx.restore();
             }, [setDrawnStrokes]);
 
@@ -10941,15 +11226,95 @@ const renderPenToolButtons = () => {
 // PDF im "Print-Look" als Blob erzeugen (ohne Print-Dialog). Wiederverwendet von Share + Auto-Upload.
 
 // PDF im "Print-Look" als Blob erzeugen (ohne Print-Dialog). Wiederverwendet von Share + Auto-Upload.
+// === PDF-DRUCK: Handschrift passend für Ziel-Kachelgröße neu rendern ===
+// Statt das Bildschirm-Bitmap (z.B. Hochformat-Form) in die Druck-Kachel zu quetschen,
+// werden die Striche mit derselben X/Y-Logik wie beim Geräte-Drehen neu gezeichnet.
+// → Schrift füllt die Druck-Kachel proportional, kein Verziehen mehr.
+const renderStrokesForPrint = (strokes, targetW, targetH, key) => {
+    try {
+        if (!Array.isArray(strokes) || strokes.length === 0) return null;
+        if (!targetW || !targetH || targetW < 2 || targetH < 2) return null;
+        const off = document.createElement('canvas');
+        const sharp = 2; // 2× für scharfen Druck
+        off.width = Math.max(1, Math.round(targetW * sharp));
+        off.height = Math.max(1, Math.round(targetH * sharp));
+        const ctx = off.getContext('2d');
+        if (!ctx) return null;
+        ctx.setTransform(sharp, 0, 0, sharp, 0, 0);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        const isOfferKey = (key || '').startsWith('offer');
+        strokes.forEach(stroke => {
+            if (!stroke || !Array.isArray(stroke.points) || stroke.points.length === 0) return;
+            const bw = stroke.baseWidth || targetW;
+            const bh = stroke.baseHeight || targetH;
+            const sx = targetW / bw;
+            const sy = targetH / bh;
+            const uni = Math.min(sx, sy);
+            const useX = isOfferKey ? sx : uni;
+            const useY = isOfferKey ? sy : uni;
+            const visualBase = Math.max(1, Math.min(12, stroke.width || 3));
+            const geo = Math.sqrt(Math.max(0.01, sx) * Math.max(0.01, sy));
+            const lw = visualBase * Math.min(1.05, Math.max(0.5, geo));
+            ctx.beginPath();
+            if (stroke.tool === 'eraser') {
+                ctx.lineWidth = lw * (stroke.eraserMult || 4);
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.globalAlpha = 1;
+            } else if (stroke.tool === 'highlighter') {
+                ctx.lineWidth = lw * 3;
+                ctx.strokeStyle = stroke.color;
+                ctx.globalAlpha = stroke.opacity != null ? stroke.opacity : 1;
+                ctx.globalCompositeOperation = 'destination-over';
+            } else {
+                ctx.lineWidth = lw;
+                ctx.strokeStyle = stroke.color || '#1d4ed8';
+                ctx.globalAlpha = stroke.opacity != null ? stroke.opacity : 1;
+                ctx.globalCompositeOperation = 'source-over';
+            }
+            const pts = stroke.points.map(p => ({ x: p.x * useX, y: p.y * useY }));
+            // v44.0: pen/fountain mit Breitenfaktoren → Druckbild = Bildschirmbild
+            if (strokeHasVariableWidth(stroke) && stroke.tool !== 'eraser' && stroke.tool !== 'highlighter') {
+                drawVariableWidthPath(ctx, pts, stroke.points, lw);
+            } else if (pts.length >= 3 && stroke.tool !== 'eraser' && stroke.tool !== 'highlighter') {
+                // Glatte Midpoint-Kurven statt eckiger lineTo-Kette
+                ctx.moveTo(pts[0].x, pts[0].y);
+                ctx.lineTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
+                for (let i = 1; i < pts.length - 1; i++) {
+                    ctx.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i + 1].x) / 2, (pts[i].y + pts[i + 1].y) / 2);
+                }
+                ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+                ctx.stroke();
+            } else {
+                ctx.moveTo(pts[0].x, pts[0].y);
+                for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+                ctx.stroke();
+            }
+        });
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+        return off.toDataURL('image/png');
+    } catch (e) { return null; }
+};
+
 const createPrintLookPdfBlob = async (triggerToast, ensurePrintHeaders, opts = {}) => {
     if (!window.html2pdf) throw new Error('html2pdf missing');
 
     const addPageNumbers = false; // FIX: kein "Seite X / N" im Share-PDF
 
+    // === ORIENTIERUNG (v42.2) ===
+    // RELEASE-STAND: Export ist IMMER Querformat (das bewährte, getestete Layout).
+    // Hochformat-Export braucht ein eigenes Seitenlayout (Titelseite, Umbrüche, Kachelbreiten)
+    // → kommt als späteres Feature. Die Infrastruktur bleibt: opts.forceOrientation='portrait'
+    // aktiviert es, sobald das Hochformat-Layout gebaut ist.
+    const __isPortrait = opts.forceOrientation === 'portrait';
+    const PDF_ORIENTATION = __isPortrait ? 'portrait' : 'landscape';
+
     // --- SHARE HARD-LOCK (v50_52): exakt links/rechts bündig, kein Cut ---
 // Ziel: Share-PDF soll exakt die Inhaltsbreite nutzen (keine Offsets, kein Extra-Padding, keine Skalierung)
-const SHARE_PAGE_WIDTH_PX  = 1122; // Share-safe width (A4 landscape @ 96dpi) // Share-safe width (prevents right-edge cut)
-const SHARE_PAGE_HEIGHT_PX = 794;
+// Breite/Höhe je nach Orientierung getauscht (A4 @ 96dpi): Querformat 1122×794, Hochformat 794×1122.
+const SHARE_PAGE_WIDTH_PX  = __isPortrait ? 794 : 1122;
+const SHARE_PAGE_HEIGHT_PX = __isPortrait ? 1122 : 794;
 const SHARE_DOC_WIDTH_PX   = SHARE_PAGE_WIDTH_PX;
 const SHARE_SAFE_SCALE     = 1.0; // keep size; CSS share-mode adds its own safety // extra safety to prevent any right-edge clipping
 const SHARE_OFFSET_Y_PX  = 0; // Share: keep at 0 (prevents page-cut) // Share: pushes PDF content down (px). Increase if top is too tight.
@@ -11105,7 +11470,21 @@ const SHARE_OFFSET_Y_PX  = 0; // Share: keep at 0 (prevents page-cut) // Share: 
                     // Hard-override gegen Landscape-Fullscreen-Shift (nur Share-PDF)
                     const __centerStyle = doc.createElement('style');
                     __centerStyle.textContent = `
+                      @page { size: A4 ${__isPortrait ? 'portrait' : 'landscape'}; margin: 0; }
                       body.pdf-share-mode{ --FULLSCREEN_SHIFT_X: 0px !important; }
+                      /* iPad-Fix: Rechte Sidebar (Stammdaten etc.) im PDF IMMER zeigen,
+                         egal welche (orientation)-Media-Query im Render-Viewport greift */
+                      body.pdf-share-mode .situation-view-wrapper{
+                        display: flex !important;
+                        flex-direction: row !important;
+                      }
+                      body.pdf-share-mode .situation-view-wrapper > aside.sit-aside-panel{
+                        display: flex !important;
+                        visibility: visible !important;
+                        opacity: 1 !important;
+                        position: relative !important;
+                        flex-shrink: 0 !important;
+                      }
                       @media (orientation: landscape) and (min-width: 1100px){
                         body.pdf-share-mode .situation-view-wrapper,
                         body.pdf-share-mode .print-situation-view,
@@ -11113,8 +11492,8 @@ const SHARE_OFFSET_Y_PX  = 0; // Share: keep at 0 (prevents page-cut) // Share: 
                       }
                       body.pdf-share-mode .print-page,
                       body.pdf-share-mode .page{
-                        width: ${1122}px !important;
-                        max-width: ${1122}px !important;
+                        width: ${SHARE_PAGE_WIDTH_PX}px !important;
+                        max-width: ${SHARE_PAGE_WIDTH_PX}px !important;
                         margin-left: auto !important;
                         margin-right: auto !important;
                       }
@@ -11767,10 +12146,14 @@ const isOfferEmpty = (sourceOfferEl, offerIndex) => {
         const ta = col.querySelector('textarea');
         const hasText = ta && (ta.value || '').trim().length > 0;
 
-        // 2) Canvas mit gezeichneten Strokes? (nur prüfen wenn Canvas sichtbar ist)
-        const canvas = col.querySelector('canvas.drawing-canvas');
+        // 2) Canvas mit gezeichneten Strokes? — zuverlässigste Quelle: globale Stroke-Daten
         let hasCanvas = false;
-        if (canvas && canvas.width > 0 && canvas.height > 0) {
+        try {
+            const ks = 'offer' + (offerIndex + 1);
+            hasCanvas = !!(window.__psStrokes && Array.isArray(window.__psStrokes[ks]) && window.__psStrokes[ks].length > 0);
+        } catch(e) {}
+        const canvas = col.querySelector('canvas.drawing-canvas');
+        if (!hasCanvas && canvas && canvas.width > 0 && canvas.height > 0) {
             try {
                 const ctx = canvas.getContext('2d');
                 if (ctx) {
@@ -11892,6 +12275,33 @@ const makeOfferPage = (sourceOfferEl, offerIndex, offerTitles) => {
         cvs.style.cssText = (cvs.getAttribute('style') || '') + ';position:absolute;inset:0;width:100%;height:100%;';
     }
 
+    // === HANDSCHRIFT FÜR VOLLE SEITE NEU RENDERN (v42.4) ===
+    // Statt das Bildschirm-Bitmap (evtl. Hochformat-Form) zu quetschen, werden die Striche
+    // frisch für die Ganzseiten-Kachel gezeichnet → kein Verziehen, viel Platz.
+    try {
+        const strokeKey = 'offer' + (offerIndex + 1);
+        const strokes = (window.__psStrokes && window.__psStrokes[strokeKey]) || null;
+        if (Array.isArray(strokes) && strokes.length > 0 && typeof renderStrokesForPrint === 'function') {
+            // Ganzseiten-Kachel: ~1060×540 px Zeichenfläche (A4 quer abzgl. Header/Rahmen)
+            const re = renderStrokesForPrint(strokes, 1060, 540, strokeKey);
+            if (re) {
+                const bakedImg = container.querySelector('img.canvas-baked-image');
+                if (bakedImg) {
+                    bakedImg.src = re;
+                    bakedImg.style.objectFit = 'contain';
+                    bakedImg.style.objectPosition = 'left top';
+                } else if (cvs) {
+                    const im = doc.createElement('img');
+                    im.src = re;
+                    im.className = 'canvas-baked-image';
+                    im.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:left top;pointer-events:none;z-index:10;';
+                    try { cvs.style.visibility = 'hidden'; } catch(e){}
+                    try { cvs.parentNode && cvs.parentNode.insertBefore(im, cvs.nextSibling); } catch(e){}
+                }
+            }
+        }
+    } catch(e) {}
+
     // ===== PDF-FIX: eingefügte Fotos 1:1 wie am Bildschirm übernehmen =====
     // Problem: Im Share-PDF bekommt die Offer-Karte eine andere Höhe als am Screen.
     // Wenn das Foto dann wieder mit width/height:100% + object-fit:contain gerendert wird,
@@ -11906,21 +12316,33 @@ const makeOfferPage = (sourceOfferEl, offerIndex, offerTitles) => {
         if (srcContainer && srcImg && cloneImg) {
             const isFotoFrame = cloneImg.classList.contains('canvas-image-fixed');
             if (isFotoFrame) {
-                // Fixer Rahmen: nur sicherstellen dass es korrekt dargestellt wird
+                // Ganzseiten-Layout: Foto NICHT zoomen/beschneiden (cover verzieht optisch),
+                // sondern proportional einpassen (contain) mit mehr Höhe.
+                // setProperty mit 'important' → gewinnt gegen Stylesheet-!important-Regeln.
                 const fotoFrame = cloneImg.closest('.foto-frame-fixed');
                 if (fotoFrame) {
-                    fotoFrame.style.width = '100%';
-                    fotoFrame.style.height = '200px';
-                    fotoFrame.style.overflow = 'hidden';
-                    fotoFrame.style.flexShrink = '0';
-                    fotoFrame.style.position = 'relative';
+                    // 9×13-Foto-Look: festes Foto-Format (13:9), rechts platziert,
+                    // weißer Rand + Schatten wie ein echter Fotoabzug.
+                    fotoFrame.style.setProperty('width', '470px', 'important');
+                    fotoFrame.style.setProperty('height', '325px', 'important');
+                    fotoFrame.style.setProperty('margin-left', 'auto', 'important');
+                    fotoFrame.style.setProperty('margin-right', '20px', 'important');
+                    fotoFrame.style.setProperty('margin-bottom', '16px', 'important');
+                    fotoFrame.style.setProperty('overflow', 'hidden', 'important');
+                    fotoFrame.style.setProperty('flex-shrink', '0', 'important');
+                    fotoFrame.style.setProperty('position', 'relative', 'important');
+                    fotoFrame.style.setProperty('background', '#ffffff', 'important');
+                    fotoFrame.style.setProperty('border', '8px solid #ffffff', 'important');
+                    fotoFrame.style.setProperty('border-radius', '10px', 'important');
+                    fotoFrame.style.setProperty('box-shadow', '0 10px 28px rgba(15,23,42,0.22)', 'important');
                 }
-                cloneImg.style.width = '100%';
-                cloneImg.style.height = '100%';
-                cloneImg.style.objectFit = 'cover';
-                cloneImg.style.objectPosition = 'center top';
-                cloneImg.style.display = 'block';
-                cloneImg.style.transform = 'none';
+                cloneImg.style.setProperty('width', '100%', 'important');
+                cloneImg.style.setProperty('height', '100%', 'important');
+                cloneImg.style.setProperty('object-fit', 'cover', 'important');
+                cloneImg.style.setProperty('object-position', 'center center', 'important');
+                cloneImg.style.setProperty('display', 'block', 'important');
+                cloneImg.style.setProperty('transform', 'none', 'important');
+                cloneImg.style.setProperty('border-radius', '4px', 'important');
             } else {
             const hostRect = srcContainer.getBoundingClientRect();
             const imgRect = srcImg.getBoundingClientRect();
@@ -12230,9 +12652,27 @@ const makeAllOffersPage = () => {
     return wrapper;
 };
 
-const allOffersPage = wrapSharePage('Ihr Persönliches Angebot', makeAllOffersPage());
-stage.appendChild(allOffersPage);
-let offerPageCount = 1; // Alle Angebote = 1 Seite
+// === v42.4: JEDES ANGEBOT BEKOMMT EINE EIGENE SEITE ===
+// Leere Angebote werden übersprungen (dynamische Seitenzahl). Die Handschrift hat damit
+// eine ganze A4-Querformat-Seite Platz → kein Quetschen in schmale Spalten mehr.
+let offerPageCount = 0;
+try {
+    for (let oi = 0; oi < 3; oi++) {
+        let empty = true;
+        try { empty = isOfferEmpty(sourceOffer, oi); } catch(e) { empty = false; }
+        if (empty) continue;
+        const pageTitle = (offerTitles[oi] && offerTitles[oi].trim()) ? offerTitles[oi].trim() : ((oi + 1) + '. Angebot');
+        const offerPage = wrapSharePage(pageTitle, makeOfferPage(sourceOffer, oi, offerTitles));
+        stage.appendChild(offerPage);
+        offerPageCount++;
+    }
+} catch(e) {}
+// Fallback: keine Einzelseite erzeugt (alles leer oder Fehler) → bewährte Sammel-Seite
+if (offerPageCount === 0) {
+    const allOffersPage = wrapSharePage('Ihr Persönliches Angebot', makeAllOffersPage());
+    stage.appendChild(allOffersPage);
+    offerPageCount = 1;
+}
 
 // Letzte Seite: Kostenübersicht OBEN (kompakt) + Danke & Bonus darunter
 // Ziel: Kosten nimmt ~42% der Höhe, Danke ~58% — beide vollständig sichtbar
@@ -12407,9 +12847,13 @@ const opt = {
             allowTaint: true,
             imageTimeout: 20000,
             backgroundColor: '#ffffff',
-            // A4-Querformat @ 96dpi als stabiler "virtueller Viewport"
-            width: 1122,
-            windowWidth: 1122,
+            // A4 @ 96dpi als stabiler "virtueller Viewport" – Breite folgt der Orientierung
+            width: SHARE_PAGE_WIDTH_PX,
+            windowWidth: SHARE_PAGE_WIDTH_PX,
+            // WICHTIG (iPad-Fix): Höhe ebenfalls pinnen! Ohne windowHeight nimmt html2canvas die
+            // Geräte-Fensterhöhe → auf iPad-Hochformat ist der Render-Viewport dann "portrait"
+            // und die Hochformat-CSS versteckt die rechte Sidebar (Stammdaten) im PDF.
+            windowHeight: SHARE_PAGE_HEIGHT_PX,
             scrollX: 0,
             scrollY: 0,
             x: 0,
@@ -12475,8 +12919,9 @@ const opt = {
 
                     // Share-PDF: komplett von echter Fenstergröße/Zoom entkoppeln
                     // WICHTIG: html2canvas arbeitet in PX. mm-Werte führen hier leicht zu Versatz/Cropping.
-                    const PAGE_W = 1122; // A4 landscape @96dpi (dein bewährtes Setup)
-                    const PAGE_H = 794;
+                    // Maße folgen der Schreib-Orientierung (Hoch-/Querformat).
+                    const PAGE_W = SHARE_PAGE_WIDTH_PX; // A4 @96dpi, orientierungsabhängig
+                    const PAGE_H = SHARE_PAGE_HEIGHT_PX;
 
                     html.style.width = PAGE_W + 'px';
                     html.style.minWidth = PAGE_W + 'px';
@@ -12520,12 +12965,39 @@ const opt = {
                                 if (!ctx) return;
                                 const w = liveCanvas.width, h = liveCanvas.height;
                                 if (!w || !h) return;
-                                // Snapshot als PNG DataURL
-                                const dataUrl = liveCanvas.toDataURL('image/png');
-                                if (!dataUrl || dataUrl === 'data:,') return;
-                                // Clone-Canvas durch <img> ersetzen damit html2canvas es sieht
                                 const cloneCanvas = cloneCanvases[idx];
                                 if (!cloneCanvas) return;
+
+                                // === OFFER-HANDSCHRIFT: für Druck-Kachelgröße NEU rendern ===
+                                // (verhindert Verziehen wenn im Hochformat geschrieben wurde)
+                                let dataUrl = null;
+                                try {
+                                    const strokeKey = liveCanvas.getAttribute('data-stroke-key');
+                                    if (strokeKey && strokeKey.startsWith('offer') && window.__psStrokes && Array.isArray(window.__psStrokes[strokeKey]) && window.__psStrokes[strokeKey].length > 0) {
+                                        // Ziel-Maße aus dem Druck-Klon lesen (Print-Layout)
+                                        let tw = 0, th = 0;
+                                        try {
+                                            const cr = cloneCanvas.getBoundingClientRect();
+                                            tw = cr.width || 0; th = cr.height || 0;
+                                        } catch(e) {}
+                                        if ((tw < 2 || th < 2) && cloneCanvas.parentNode) {
+                                            try {
+                                                const pr = cloneCanvas.parentNode.getBoundingClientRect();
+                                                tw = pr.width || 0; th = pr.height || 0;
+                                            } catch(e) {}
+                                        }
+                                        if (tw >= 2 && th >= 2 && typeof renderStrokesForPrint === 'function') {
+                                            dataUrl = renderStrokesForPrint(window.__psStrokes[strokeKey], tw, th, strokeKey);
+                                        }
+                                    }
+                                } catch(e) {}
+
+                                // Fallback: Bitmap-Snapshot des Live-Canvas
+                                if (!dataUrl) {
+                                    dataUrl = liveCanvas.toDataURL('image/png');
+                                }
+                                if (!dataUrl || dataUrl === 'data:,') return;
+                                // Clone-Canvas durch <img> ersetzen damit html2canvas es sieht
                                 const img = clonedDoc.createElement('img');
                                 img.src = dataUrl;
                                 img.style.cssText = [
@@ -12743,8 +13215,8 @@ const opt = {
                 }catch(e){}
             }
         },
-        // echte Papiermaße: A4 Landscape in mm (immer korrekt skaliert)
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true }
+        // echte Papiermaße: A4 in mm, Orientierung folgt dem Schreiben (Hoch-/Querformat)
+        jsPDF: { unit: 'mm', format: 'a4', orientation: PDF_ORIENTATION, compress: true }
     };
     try {
         // --- HARD LIMIT: keep ONLY first 4 pages in the generated PDF (Share) ---
@@ -12823,113 +13295,6 @@ function injectPdfLoadingPage(win) {
   .dots span:nth-child(2){animation-delay:.2s;}
   .dots span:nth-child(3){animation-delay:.4s;}
   @keyframes blink{0%,80%,100%{opacity:0}40%{opacity:1}}
-
-
-/* =========================================================
-   PATCH DIEGO 2026-06-10: PAPIERDRUCK GERADE / NICHT VERZOGEN
-   Problem vorher: @media print nutzte gleichzeitig px-Breiten, zoom:0.78,
-   iPad/Safari transform:scale(...) und Portrait-Shift. Echte Drucker
-   skalieren dann zusätzlich -> Papierausdruck wirkt verzogen/gestaucht.
-   Lösung: Browser-Papierdruck strikt auf echte A4-Landscape-Maße setzen,
-   alle Zoom-/Transform-Tricks im Print neutralisieren. pdf-share-mode bleibt
-   separat, damit der html2pdf-Export nicht mit dem Papierdruck kollidiert.
-   ========================================================= */
-@media print {
-  @page { size: A4 landscape; margin: 0 !important; }
-
-  body:not(.pdf-share-mode),
-  body:not(.pdf-share-mode) #root {
-    width: 297mm !important;
-    min-width: 297mm !important;
-    max-width: 297mm !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: visible !important;
-    background: #ffffff !important;
-    zoom: 1 !important;
-    transform: none !important;
-    transform-origin: top left !important;
-  }
-
-  /* Der wichtigste Fix: alle Bildschirm-/iPad-Shift- und Scale-Regeln im echten Papierdruck aus. */
-  body:not(.pdf-share-mode) .situation-view-wrapper,
-  body:not(.pdf-share-mode) .print-situation-view,
-  body:not(.pdf-share-mode) .print-offer-view,
-  body:not(.pdf-share-mode) .print-netzwerk-anlage,
-  body:not(.pdf-share-mode) .offer-inner-wrapper,
-  body:not(.pdf-share-mode) .offer-scroll-area,
-  body:not(.pdf-share-mode) .share-page,
-  body:not(.pdf-share-mode) .share-page-content {
-    zoom: 1 !important;
-    transform: none !important;
-    transform-origin: top left !important;
-    margin-left: 0 !important;
-    translate: none !important;
-  }
-
-  /* Seite 1: feste Papiermaße, keine Browser-Nachskalierung. */
-  body:not(.pdf-share-mode) .situation-view-wrapper {
-    width: 297mm !important;
-    min-width: 297mm !important;
-    max-width: 297mm !important;
-    height: calc(210mm - 44px) !important;
-    max-height: calc(210mm - 44px) !important;
-    padding: 0 !important;
-    box-sizing: border-box !important;
-    overflow: hidden !important;
-    break-after: page !important;
-    page-break-after: always !important;
-  }
-
-  /* Seite 2/Angebot: keine px+zoom-Mischung mehr, sondern echtes A4. */
-  body:not(.pdf-share-mode) .print-offer-view {
-    display: block !important;
-    width: 297mm !important;
-    min-width: 297mm !important;
-    max-width: 297mm !important;
-    height: 210mm !important;
-    max-height: 210mm !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    box-sizing: border-box !important;
-    overflow: hidden !important;
-    background: #eff6ff !important;
-    page-break-after: always !important;
-    break-after: page !important;
-  }
-
-  body:not(.pdf-share-mode) .print-offer-view .offer-inner-wrapper {
-    width: 297mm !important;
-    max-width: 297mm !important;
-    height: 210mm !important;
-    max-height: 210mm !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-  }
-
-  /* Safari/iPad ignoriert teils zoom, aber transform wurde vorher genutzt.
-     Hier wird der alte Safari-Fallback aktiv überschrieben. */
-  @supports (-webkit-touch-callout: none) {
-    body:not(.pdf-share-mode) .print-offer-view,
-    body:not(.pdf-share-mode) .situation-view-wrapper,
-    body:not(.pdf-share-mode) .print-netzwerk-anlage {
-      zoom: 1 !important;
-      transform: none !important;
-      width: 297mm !important;
-      min-width: 297mm !important;
-      max-width: 297mm !important;
-      height: 210mm !important;
-      max-height: 210mm !important;
-      margin-left: 0 !important;
-    }
-  }
-
-  /* Druckdialog soll nicht durch negative Tablet-Margins aus dem Screen-CSS beeinflusst werden. */
-  body:not(.pdf-share-mode) [style*="transform: scale"],
-  body:not(.pdf-share-mode) [style*="zoom:"] {
-    transform-origin: top left !important;
-  }
-}
 </style></head><body>
 <div class="card">
   <div class="spinner"></div>
@@ -13404,41 +13769,47 @@ const handlePDFShare = async () => {
                 if (!runOnlyWithOfferValidity(() => { handleRecommendedPdfPrint(); })) return;
 
                 try { setShowFinishTypeModal(false); } catch(e) {}
+                // === Nach Unterschrift: PDF-Name = Rufnummer (MSISDN) des Kunden ===
+                let __pdfName2 = `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
+                try {
+                    if (customerSignature) {
+                        const ms = window.prompt('📱 Bitte MSISDN / Rufnummer des Kunden eingeben:\n(Die PDF-Datei wird danach benannt)', '');
+                        const cleanMs = (ms || '').replace(/[^0-9+]/g, '').trim();
+                        if (cleanMs) __pdfName2 = `Angebot ${cleanMs}.pdf`;
+                    }
+                } catch(e) {}
                 triggerToast('PDF wird erstellt… einen Moment.');
                 try {
                     const blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders);
-                    const pdfFileName = `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
+                    const pdfFileName = __pdfName2;
                     const pdfFile = new File([blob], pdfFileName, { type: 'application/pdf' });
+                    window.__lastPdfBlob = blob; window.__lastPdfFile = pdfFile;
 
+                    // ── Statistik sofort loggen (zählt unabhängig vom Teilen-Weg als "Angebot") ──
+                    logQuoteToStatistics();
+
+                    // Direkt-Teilen versuchen. ACHTUNG iOS: navigator.share braucht eine frische
+                    // Nutzer-Geste – nach langer PDF-Erzeugung kann die abgelaufen sein. Dann
+                    // zeigen wir den "Jetzt teilen"-Dialog (Button-Tap = neue Geste → klappt sicher).
                     if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
                         try {
                             await navigator.share({ title: 'Angebot', text: 'Ihr persönliches Angebot', files: [pdfFile] });
                             triggerToast('✅ PDF geteilt.');
+                            setTimeout(() => setShowReferralModal(true), 400);
+                            return;
                         } catch(shareErr) {
-                            if (shareErr && shareErr.name === 'AbortError') return;
-                            const url = URL.createObjectURL(blob);
-                            window.open(url, '_blank');
-                            setTimeout(() => URL.revokeObjectURL(url), 120000);
-                            triggerToast('✅ PDF geöffnet – drucken oder speichern.');
+                            if (shareErr && shareErr.name === 'AbortError') {
+                                // Nutzer hat Teilen-Dialog bewusst geschlossen → trotzdem Abschluss-Dialog
+                                setTimeout(() => setShowReferralModal(true), 400);
+                                return;
+                            }
+                            // Gestenregel abgelaufen → Teilen-Button mit frischer Geste anbieten
+                            setPdfShareReady(pdfFile);
+                            return;
                         }
-                    } else {
-                        const url = URL.createObjectURL(blob);
-                        const pdfTab = window.open(url, '_blank');
-                        if (!pdfTab) {
-                            const a = document.createElement('a');
-                            a.href = url; a.download = pdfFileName;
-                            document.body.appendChild(a); a.click(); document.body.removeChild(a);
-                        }
-                        setTimeout(() => URL.revokeObjectURL(url), 120000);
-                        triggerToast('✅ PDF geöffnet – drucken oder speichern.');
                     }
-
-                    // ── Statistik loggen (auch nicht-abgeschlossene Angebote zählen!) ──
-                    // Ein PDF-Export ohne Unterschrift = "Angebot" (nicht abgeschlossen) → für Coaching sichtbar.
-                    logQuoteToStatistics();
-
-                    // ── Gleiche "fertig & neu starten"-Meldung wie nach Unterschrift ──
-                    setTimeout(() => setShowReferralModal(true), 400);
+                    // Share-API nicht verfügbar → Teilen/Öffnen-Dialog anbieten
+                    setPdfShareReady(pdfFile);
                 } catch(e) {
                     triggerToast('PDF-Fehler: ' + (e && e.message ? e.message : 'Unbekannt'));
                 }
@@ -13459,6 +13830,43 @@ const handlePDFShare = async () => {
     setShowTvModal(false); 
 }} />
                     <QuestionModal isOpen={!!activeCategory && !showAdmin} onClose={() => setActiveCategory(null)} category={activeCategory} question={getCurrentQuestion()} onNextQuestion={handleNextQuestion} />
+                    {pdfShareReady && (
+                        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.55)',zIndex:100000,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+                            <div style={{background:'#fff',borderRadius:'20px',padding:'28px 26px',width:'min(92vw,420px)',textAlign:'center',boxShadow:'0 25px 60px rgba(0,0,0,0.3)'}}>
+                                <div style={{fontSize:'40px',marginBottom:'8px'}}>📄</div>
+                                <div style={{fontSize:'19px',fontWeight:900,color:'#0f172a',marginBottom:'6px'}}>PDF ist fertig!</div>
+                                <div style={{fontSize:'13px',color:'#64748b',marginBottom:'18px'}}>Jetzt mit dem Kunden teilen oder öffnen.</div>
+                                <button onClick={() => {
+                                    const f = pdfShareReady;
+                                    setPdfShareReady(null);
+                                    const after = () => setTimeout(() => setShowReferralModal(true), 300);
+                                    if (navigator.canShare && navigator.canShare({ files: [f] })) {
+                                        // WICHTIG: share() synchron im Tap aufrufen → iOS zeigt den Teilen-Dialog sicher
+                                        navigator.share({ title: 'Angebot', text: 'Ihr persönliches Angebot', files: [f] })
+                                            .then(() => { triggerToast('✅ PDF geteilt.'); after(); })
+                                            .catch(() => {
+                                                try { const url = URL.createObjectURL(f); window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 120000); } catch(e) {}
+                                                after();
+                                            });
+                                    } else {
+                                        try { const url = URL.createObjectURL(f); window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 120000); } catch(e) {}
+                                        after();
+                                    }
+                                }} style={{width:'100%',padding:'14px',borderRadius:'14px',border:'none',background:'#2563eb',color:'#fff',fontWeight:800,fontSize:'16px',cursor:'pointer',marginBottom:'10px',boxShadow:'0 6px 16px rgba(37,99,235,0.35)'}}>📤 Jetzt teilen</button>
+                                <button onClick={() => {
+                                    const f = pdfShareReady;
+                                    setPdfShareReady(null);
+                                    try {
+                                        const url = URL.createObjectURL(f);
+                                        const t = window.open(url, '_blank');
+                                        if (!t) { const a = document.createElement('a'); a.href = url; a.download = f.name; document.body.appendChild(a); a.click(); document.body.removeChild(a); }
+                                        setTimeout(() => URL.revokeObjectURL(url), 120000);
+                                    } catch(e) {}
+                                    setTimeout(() => setShowReferralModal(true), 300);
+                                }} style={{width:'100%',padding:'12px',borderRadius:'14px',border:'1.5px solid #e2e8f0',background:'#f8fafc',color:'#475569',fontWeight:700,fontSize:'14px',cursor:'pointer'}}>In neuem Tab öffnen</button>
+                            </div>
+                        </div>
+                    )}
                     <ReferralModal isOpen={showReferralModal} onClose={(mode) => {
                         setShowReferralModal(false);
                         if (mode === 'cancel') {
@@ -13585,7 +13993,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v42.0</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v44.0</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
@@ -13931,16 +14339,16 @@ const handlePDFShare = async () => {
 
                         <aside className="shrink-0 sit-aside-panel flex flex-col border-l border-slate-200/60 z-10 h-full" style={{background:'linear-gradient(180deg,#f8faff 0%,#f0f6ff 100%)'}}>
                             
-                            <div className="sit-aside-inner flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar" style={{padding:'12px 12px 72px 12px',gap:'12px',display:'flex',flexDirection:'column'}}>
+                            <div className="sit-aside-inner flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar" style={{padding:'16px 14px 90px 14px',gap:'16px',display:'flex',flexDirection:'column'}}>
 
                             {/* ── Karten-Helper: Header ── */}
                             {/* STAMMDATEN */}
                             <div style={{background:'#ffffff',borderRadius:'12px',border:'1px solid #e8f0fe',boxShadow:'0 1px 3px rgba(37,99,235,0.05)',overflow:'hidden'}}>
-                                <div style={{padding:'7px 11px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:'7px'}}>
+                                <div style={{padding:'10px 14px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:'7px'}}>
                                     <div style={{width:'22px',height:'22px',borderRadius:'7px',background:'linear-gradient(135deg,#3b82f6,#6366f1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                                     </div>
-                                    <span style={{fontSize:'10px',fontWeight:800,color:'#1e293b',letterSpacing:'0.02em'}}>Stammdaten</span>
+                                    <span style={{fontSize:'12px',fontWeight:800,color:'#1e293b',letterSpacing:'0.01em'}}>Stammdaten</span>
                                 </div>
                                 <div style={{padding:'7px 10px',display:'flex',flexDirection:'column',gap:'6px'}}>
                                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'5px'}}>
@@ -14074,11 +14482,11 @@ const handlePDFShare = async () => {
 
                             {/* TECHNISCHE SITUATION */}
                             <div style={{background:'#ffffff',borderRadius:'12px',border:'1px solid #e8f0fe',boxShadow:'0 1px 3px rgba(37,99,235,0.05)',overflow:'hidden'}}>
-                                <div style={{padding:'7px 11px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:'7px'}}>
+                                <div style={{padding:'10px 14px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:'7px'}}>
                                     <div style={{width:'22px',height:'22px',borderRadius:'7px',background:'linear-gradient(135deg,#06b6d4,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
                                     </div>
-                                    <span style={{fontSize:'10px',fontWeight:800,color:'#1e293b',letterSpacing:'0.02em'}}>Technische Situation</span>
+                                    <span style={{fontSize:'12px',fontWeight:800,color:'#1e293b',letterSpacing:'0.01em'}}>Technische Situation</span>
                                 </div>
                                 <div style={{padding:'7px 10px',display:'flex',flexDirection:'column',gap:'5px'}}>
                                     <div style={{position:'relative'}}>
@@ -14116,11 +14524,11 @@ const handlePDFShare = async () => {
 
                             {/* TECHNOLOGIE & SPEED */}
                             <div style={{background:'#ffffff',borderRadius:'12px',border:'1px solid #e8f0fe',boxShadow:'0 1px 3px rgba(37,99,235,0.05)',overflow:'hidden'}}>
-                                <div style={{padding:'7px 11px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:'7px'}}>
+                                <div style={{padding:'10px 14px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:'7px'}}>
                                     <div style={{width:'22px',height:'22px',borderRadius:'7px',background:'linear-gradient(135deg,#f59e0b,#ef4444)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                                         <Icon d={ICONS.Zap} size={11} style={{color:'white'}}/>
                                     </div>
-                                    <span style={{fontSize:'10px',fontWeight:800,color:'#1e293b',letterSpacing:'0.02em'}}>Technologie & Speed</span>
+                                    <span style={{fontSize:'12px',fontWeight:800,color:'#1e293b',letterSpacing:'0.01em'}}>Technologie & Speed</span>
                                 </div>
                                 <div style={{padding:'7px 10px',display:'flex',flexDirection:'column',gap:'4px'}}>
                                     {[
@@ -14143,11 +14551,11 @@ const handlePDFShare = async () => {
 
                             {/* ROAMING & TV */}
                             <div className="print-hide-roaming" style={{background:'#ffffff',borderRadius:'12px',border:'1px solid #e8f0fe',boxShadow:'0 1px 3px rgba(37,99,235,0.05)',overflow:'hidden'}}>
-                                <div style={{padding:'7px 11px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:'7px'}}>
+                                <div style={{padding:'10px 14px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:'7px'}}>
                                     <div style={{width:'22px',height:'22px',borderRadius:'7px',background:'linear-gradient(135deg,#8b5cf6,#ec4899)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                                         <Icon d={ICONS.Globe} size={11} style={{color:'white'}}/>
                                     </div>
-                                    <span style={{fontSize:'10px',fontWeight:800,color:'#1e293b',letterSpacing:'0.02em'}}>Roaming & TV</span>
+                                    <span style={{fontSize:'12px',fontWeight:800,color:'#1e293b',letterSpacing:'0.01em'}}>Roaming & TV</span>
                                 </div>
                                 <div style={{padding:'7px 10px',display:'flex',flexDirection:'column',gap:'4px'}}>
                                     {[
@@ -14169,12 +14577,12 @@ const handlePDFShare = async () => {
 
                             {/* KOSTEN (IST) */}
                             <div className="print-hide-kosten" style={{background:'#ffffff',borderRadius:'12px',border:'1px solid #e8f0fe',boxShadow:'0 1px 3px rgba(37,99,235,0.05)',overflow:'hidden'}}>
-                                <div style={{padding:'7px 11px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                                <div style={{padding:'10px 14px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                                     <div style={{display:'flex',alignItems:'center',gap:'7px'}}>
                                         <div style={{width:'22px',height:'22px',borderRadius:'7px',background:'linear-gradient(135deg,#10b981,#06b6d4)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                                             <Icon d={ICONS.Calculator} size={11} style={{color:'white'}}/>
                                         </div>
-                                        <span style={{fontSize:'10px',fontWeight:800,color:'#1e293b',letterSpacing:'0.02em'}}>Kosten (Ist)</span>
+                                        <span style={{fontSize:'12px',fontWeight:800,color:'#1e293b',letterSpacing:'0.01em'}}>Kosten (Ist)</span>
                                     </div>
                                     <button onClick={()=>setShowCostSection(v=>!v)} style={{display:'flex',alignItems:'center',gap:'3px',padding:'2px 8px',borderRadius:'999px',fontSize:'9px',fontWeight:700,border:`1px solid ${showCostSection?'#e2e8f0':'#bfdbfe'}`,background:showCostSection?'#f8fafc':'#eff6ff',color:showCostSection?'#94a3b8':'#2563eb',cursor:'pointer'}}>
                                         {showCostSection
@@ -15306,10 +15714,6 @@ const handlePDFShare = async () => {
                         sitW.style.setProperty('max-height', 'calc(210mm - ' + hdrPx + 'px)', 'important');
                         sitW.style.setProperty('min-height', '0', 'important');
                         sitW.style.setProperty('overflow',   'hidden', 'important');
-                        sitW.style.setProperty('zoom',       '1',      'important');
-                        sitW.style.setProperty('transform',  'none',   'important');
-                        sitW.style.setProperty('transform-origin', 'top left', 'important');
-                        sitW.style.setProperty('margin-left','0',      'important');
                     }
                     const ofW = document.querySelector('.print-offer-view');
                     if (ofW) {
@@ -15320,9 +15724,6 @@ const handlePDFShare = async () => {
                         ofW.style.setProperty('max-height', '210mm', 'important');
                         ofW.style.setProperty('overflow',   'hidden', 'important');
                         ofW.style.setProperty('zoom',       '1',      'important');
-                        ofW.style.setProperty('transform',  'none',   'important');
-                        ofW.style.setProperty('transform-origin', 'top left', 'important');
-                        ofW.style.setProperty('margin-left','0',      'important');
                     }
                 })();
 
@@ -15716,15 +16117,6 @@ const handlePDFShare = async () => {
         var A4_LANDSCAPE_PX = 1122; // 297mm @ 96dpi
 
         function forcePrintLandscape() {
-            try { document.body.classList.add('paper-print-mode'); } catch(e) {}
-            try {
-                document.querySelectorAll('.situation-view-wrapper,.print-situation-view,.print-offer-view,.print-netzwerk-anlage').forEach(function(el){
-                    el.style.setProperty('zoom','1','important');
-                    el.style.setProperty('transform','none','important');
-                    el.style.setProperty('transform-origin','top left','important');
-                    el.style.setProperty('margin-left','0','important');
-                });
-            } catch(e) {}
             var meta = document.querySelector('meta[name="viewport"]');
             if (meta) {
                 meta._origContent = meta.getAttribute('content');
@@ -15735,7 +16127,6 @@ const handlePDFShare = async () => {
         }
 
         function restoreAfterPrint() {
-            try { document.body.classList.remove('paper-print-mode'); } catch(e) {}
             var meta = document.querySelector('meta[name="viewport"]');
             if (meta && meta._origContent) {
                 meta.setAttribute('content', meta._origContent);
