@@ -4022,6 +4022,8 @@ body.pdf-share-mode .email-mode-buttons { display: none !important; }
         };
 
         // ── Push einzelne Zeile zu Firebase (fire & forget) ──
+
+
         const pushRowToFirebase = async (row) => {
             try {
                 const db = getStatsDb();
@@ -4764,19 +4766,6 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
             );
         };
 
-        // ═══════════════════════════════════════════════════════════════
-        // 🔧 INTERNETBOX-DATENBANK (WLAN-Planer) — HIER PFLEGEN!
-        // maxQm = realistische WLAN-Abdeckung pro ETAGE in qm (konservative
-        // Praxis-Richtwerte, NICHT die Marketing-Angaben der Hersteller!).
-        // Neue Boxen: einfach Zeile ergänzen. Sortierung ist egal –
-        // der Planer wählt automatisch die kleinste ausreichende Box.
-        // ═══════════════════════════════════════════════════════════════
-        const WLAN_BOX_DB = [
-            { name: 'FRITZ!Box 7510',    maxQm: 60,  wifi: 'Wi-Fi 6', hinweis: 'Einsteiger – kleine Wohnungen' },
-            { name: 'FRITZ!Box 7530 AX', maxQm: 90,  wifi: 'Wi-Fi 6', hinweis: 'Standard – mittlere Wohnungen' },
-            { name: 'o2 HomeBox',        maxQm: 110, wifi: 'Wi-Fi 6', hinweis: 'o2 Standard-Router' },
-            { name: 'FRITZ!Box 7590 AX', maxQm: 120, wifi: 'Wi-Fi 6', hinweis: 'Premium – große Wohnungen & Häuser' },
-        ];
 
         const WlanModal=({isOpen,onClose,triggerToast,onRecommendation,onUebernehmen})=>{
   const[step,setStep]=React.useState(1);
@@ -4784,8 +4773,7 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
   const[router,setRouter]=React.useState(null);
   const[needs,setNeeds]=React.useState(new Set());
   const[thickWalls,setThickWalls]=React.useState(false);
-  const[sqm,setSqm]=React.useState('');
-  const resetAndClose=()=>{setStep(1);setFloors(null);setRouter(null);setNeeds(new Set());setThickWalls(false);setSqm('');onClose();};
+  const resetAndClose=()=>{setStep(1);setFloors(null);setRouter(null);setNeeds(new Set());setThickWalls(false);onClose();};
   const availableFloors=React.useMemo(()=>{const f=['Keller','EG'];if(floors>=2)f.push('OG 1');if(floors>=3)f.push('OG 2');if(floors>=4)f.push('DG');return f;},[floors]);
   const floorKeys=React.useMemo(()=>availableFloors.map(l=>l.toLowerCase().replace(' ','')),[availableFloors]);
   const rec=React.useMemo(()=>{
@@ -4794,26 +4782,15 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
     const needArr=floorKeys.filter(f=>needs.has(f));
     const maxDist=needArr.length?Math.max(...needArr.map(f=>Math.abs(floorKeys.indexOf(f)-ri))):0;
     const cov=needArr.length;
-    // === QUADRATMETER (optional): Fläche pro Etage + passende Box finden ===
-    const qmNum=parseInt(sqm,10)||0;
-    const qmPerFloor=(qmNum>0&&floors)?Math.round(qmNum/floors):0;
-    let box=null,boxWarn=null;
-    if(qmNum>0){
-      const sorted=[...WLAN_BOX_DB].sort((a,b)=>a.maxQm-b.maxQm);
-      box=sorted.find(r=>r.maxQm>=qmPerFloor)||null;
-      if(!box){box=sorted[sorted.length-1];boxWarn='⚠️ '+qmPerFloor+' qm/Etage übersteigt die Reichweite jeder Box – Mesh/Repeater zwingend einplanen!';}
-    }
     let sol,desc,badge,score,tips=[];
-    if(qmPerFloor>=130){sol='Mesh-System';desc='Sehr große Grundfläche (~'+qmPerFloor+' qm je Etage) – eine Box allein reicht nicht';badge='🔵 Mesh';score=90;tips=['Mesh-Node je ca. 80–100 qm einplanen','Backhaul über LAN-Kabel wenn möglich'];}
-    else if(floors===1&&!thickWalls&&cov<=1&&qmPerFloor>90){sol='Repeater (WiFi 6)';desc='Eine Etage, aber ~'+qmPerFloor+' qm – ein Repeater schließt die Lücke';badge='🟠 Repeater';score=85;tips=['Repeater auf halber Strecke platzieren','Gleiche Marke wie Router empfohlen'];}
-    else if(floors===1&&!thickWalls&&cov<=1){sol='Router reicht aus';desc='Kleine Fläche, kein Verstärker nötig';badge='✅ Kein Zusatzgerät';score=97;tips=['Router zentral aufstellen','5 GHz für Streaming nutzen'];}
+    if(floors===1&&!thickWalls&&cov<=1){sol='Router reicht aus';desc='Kleine Fläche, kein Verstärker nötig';badge='✅ Kein Zusatzgerät';score=97;tips=['Router zentral aufstellen','5 GHz für Streaming nutzen'];}
     else if(thickWalls&&maxDist>=2){sol='Mesh-System';desc='Dicke Wände + mehrere Etagen: Mesh ideal';badge='🔵 Mesh';score=93;tips=['Mesh-Node in jeder Etage','Backhaul über Kabel wenn möglich'];}
     else if(floors>=3||cov>=3){sol='Mesh-System';desc='Große Fläche – Mesh für lückenloses WLAN';badge='🔵 Mesh';score=91;tips=['2–3 Nodes je nach Grundfläche','TP-Link Deco oder AVM Fritz!Mesh'];}
     else if(thickWalls){sol='Powerline + WLAN-Adapter';desc='Beton blockiert Funk: Signal über Stromleitungen';badge='🟡 Powerline';score=81;tips=['Devolo Magic oder AVM Fritz!Powerline','Nicht an Steckdosenleiste'];}
     else if(maxDist>=1){sol='Repeater (WiFi 6)';desc='Weitere Etage – Repeater im Treppenhaus ideal';badge='🟠 Repeater';score=83;tips=['Gleiche Marke wie Router empfohlen','WPS-Kopplung für einfachen Setup'];}
     else{sol='Router reicht aus';desc='Kurze Distanz, gute Abdeckung erwartet';badge='✅ Kein Zusatzgerät';score=96;tips=['Router zentral aufstellen','5 GHz für Streaming, 2.4 GHz für SmartHome'];}
-    return{sol,desc,badge,score,tips,box,boxWarn,qmNum,qmPerFloor};
-  },[floors,router,needs,thickWalls,floorKeys,sqm]);
+    return{sol,desc,badge,score,tips};
+  },[floors,router,needs,thickWalls,floorKeys]);
   const sc=rec?(rec.score>=90?'#16a34a':rec.score>=75?'#d97706':'#dc2626'):'#94a3b8';
   const FH=54,FG=5,PAD=16;
   const svgH=PAD+availableFloors.length*(FH+FG)+PAD+40;
@@ -4852,16 +4829,6 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                     <span style={{fontSize:26}}>{f.ic}</span>
                     <span style={{fontSize:12,fontWeight:700,color:floors===f.n?'#1d4ed8':'#475569'}}>{f.l}</span>
                   </button>))}
-              </div>
-              <div style={{marginBottom:16}}>
-                <div style={{fontSize:14,fontWeight:800,color:'#0f172a',marginBottom:8}}>📐 Wohnfläche gesamt <span style={{fontWeight:600,color:'#94a3b8',fontSize:12}}>(optional – für die Box-Empfehlung)</span></div>
-                <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
-                  {[60,80,100,120,160,200].map(q=>(
-                    <button key={q} onClick={()=>setSqm(sqm===String(q)?'':String(q))} style={{padding:'8px 14px',borderRadius:999,border:'2px solid '+(sqm===String(q)?'#2563eb':'#e2e8f0'),background:sqm===String(q)?'#eff6ff':'white',color:sqm===String(q)?'#1d4ed8':'#475569',fontWeight:700,fontSize:13,cursor:'pointer'}}>{q} qm</button>
-                  ))}
-                  <input type="number" inputMode="numeric" min="10" max="2000" value={sqm} onChange={e=>setSqm(e.target.value)} placeholder="qm" style={{width:84,padding:'8px 10px',borderRadius:10,border:'2px solid #e2e8f0',fontSize:13,fontWeight:700,color:'#0f172a'}}/>
-                </div>
-                {(parseInt(sqm,10)>0&&floors)?(<div style={{marginTop:8,fontSize:12,fontWeight:700,color:'#2563eb'}}>≈ {Math.round(parseInt(sqm,10)/floors)} qm pro Etage</div>):null}
               </div>
               <div style={{background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:10,padding:'10px 14px',fontSize:12,color:'#92400e',display:'flex',gap:8}}>
                 <span>💡</span><span>Tipp: Betondecken zwischen Etagen können das WLAN-Signal stark abschwächen — auch bei nur 1–2 Etagen.</span>
@@ -4917,28 +4884,19 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                   <div style={{fontSize:10,fontWeight:800,color:'rgba(255,255,255,0.4)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:6}}>Tipps</div>
                   {rec.tips.map((t,i)=>(<div key={i} style={{fontSize:12,color:'rgba(255,255,255,0.75)',display:'flex',gap:8,marginBottom:i<rec.tips.length-1?5:0}}><span style={{color:'#60a5fa',flexShrink:0}}>→</span>{t}</div>))}
                 </div>)}
-                {rec.box&&(<div style={{background:'rgba(255,255,255,0.07)',borderRadius:10,padding:'12px 14px',marginBottom:14,border:'1px solid rgba(96,165,250,0.4)'}}>
-                  <div style={{fontSize:10,fontWeight:800,color:'rgba(255,255,255,0.4)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:6}}>📦 Passende Internetbox</div>
-                  <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:10}}>
-                    <span style={{fontSize:17,fontWeight:900,color:'white'}}>{rec.box.name}</span>
-                    <span style={{fontSize:12,fontWeight:700,color:'#93c5fd',flexShrink:0}}>bis ~{rec.box.maxQm} qm/Etage</span>
-                  </div>
-                  <div style={{fontSize:12,color:'rgba(255,255,255,0.6)',marginTop:3}}>{rec.box.wifi} · {rec.box.hinweis}</div>
-                  {rec.boxWarn&&(<div style={{marginTop:8,background:'rgba(251,191,36,0.15)',border:'1px solid rgba(251,191,36,0.4)',borderRadius:8,padding:'8px 10px',fontSize:12,fontWeight:700,color:'#fcd34d'}}>{rec.boxWarn}</div>)}
-                </div>)}
                 <button onClick={()=>{
-                  const txt=rec.sol+': '+rec.desc+(rec.box?' · Box: '+rec.box.name:'')+'. Tipps: '+rec.tips.join('; ');
+                  const txt=rec.sol+': '+rec.desc+'. Tipps: '+rec.tips.join('; ');
                   try{navigator.clipboard.writeText(txt);}catch(e){}
-                  if(typeof onRecommendation==='function')onRecommendation(rec.sol+' ('+rec.desc+')'+(rec.box?' · '+rec.box.name:''));
-                  if(typeof onUebernehmen==='function')onUebernehmen({floors,router,needs:[...needs],availableFloors:[...availableFloors],floorKeys:[...floorKeys],rec,thickWalls,sqm:rec.qmNum||null,qmPerFloor:rec.qmPerFloor||null,box:rec.box||null});
+                  if(typeof onRecommendation==='function')onRecommendation(rec.sol+' ('+rec.desc+')');
+                  if(typeof onUebernehmen==='function')onUebernehmen({floors,router,needs:[...needs],availableFloors:[...availableFloors],floorKeys:[...floorKeys],rec,thickWalls});
                   triggerToast('✅ WLAN-Empfehlung übernommen!');
                   resetAndClose();
                 }} style={{width:'100%',padding:'13px',background:'#2563eb',color:'white',border:'none',borderRadius:12,fontWeight:800,fontSize:14,cursor:'pointer'}}>
                   Empfehlung übernehmen &amp; schließen
                 </button>
               </div>
-              <div style={{display:'grid',gridTemplateColumns:rec.qmNum>0?'1fr 1fr 1fr 1fr':'1fr 1fr 1fr',gap:10}}>
-                {[{l:'Etagen',v:floors+'x'},{l:'Router',v:(router||'–').toUpperCase()},{l:'Bereiche',v:needs.size+'x'},...(rec.qmNum>0?[{l:'Fläche',v:rec.qmNum+' qm'}]:[])].map(s=>(
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+                {[{l:'Etagen',v:floors+'x'},{l:'Router',v:(router||'–').toUpperCase()},{l:'Bereiche',v:needs.size+'x'}].map(s=>(
                   <div key={s.l} style={{background:'#f8fafc',borderRadius:10,padding:12,textAlign:'center',border:'1px solid #e2e8f0'}}>
                     <div style={{fontSize:18,fontWeight:900,color:'#0f172a'}}>{s.v}</div>
                     <div style={{fontSize:11,color:'#94a3b8',marginTop:2}}>{s.l}</div>
@@ -8997,6 +8955,7 @@ const handleOpenStats = () => { setShowPinLock(true); };
             const [notesMode, setNotesMode] = useState('keyboard');
 
             const [showWlanModal, setShowWlanModal] = useState(false);
+
             const [showSpeedModal, setShowSpeedModal] = useState(false);
             const [showTechModal, setShowTechModal] = useState(false);
             const [showCostSection, setShowCostSection] = useState(true);
@@ -14169,7 +14128,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v45.0</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v45.2</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
