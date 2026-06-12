@@ -4329,7 +4329,7 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
 
 
         // --- 1. DATA CONFIG ---
-        const ALL_LANGUAGES = [{code:'de',name:'Deutsch',flag:'🇩🇪',languageCode:'de'},{code:'ar',name:'Arabisch',flag:'🇸🇦',languageCode:'ar'},{code:'en',name:'Englisch',flag:'🇬🇧',languageCode:'en'},{code:'el',name:'Griechisch',flag:'🇬🇷',languageCode:'el'},{code:'it',name:'Italienisch',flag:'🇮🇹',languageCode:'it'},{code:'pl',name:'Polnisch',flag:'🇵🇱',languageCode:'pl'},{code:'pt',name:'Portugiesisch',flag:'🇵🇹',languageCode:'pt'},{code:'ro',name:'Rumänisch',flag:'🇷🇴',languageCode:'ro'},{code:'es',name:'Spanisch',flag:'🇪🇸',languageCode:'es'},{code:'tr',name:'Türkisch',flag:'🇹🇷',languageCode:'tr'}];
+        const ALL_LANGUAGES = [{code:'de',name:'Deutsch',flag:'🇩🇪',languageCode:'de'},{code:'ar',name:'Arabisch',flag:'🇸🇦',languageCode:'ar'},{code:'en',name:'Englisch',flag:'🇬🇧',languageCode:'en'},{code:'el',name:'Griechisch',flag:'🇬🇷',languageCode:'el'},{code:'it',name:'Italienisch',flag:'🇮🇹',languageCode:'it'},{code:'pl',name:'Polnisch',flag:'🇵🇱',languageCode:'pl'},{code:'pt',name:'Portugiesisch',flag:'🇵🇹',languageCode:'pt'},{code:'ro',name:'Rumänisch',flag:'🇷🇴',languageCode:'ro'},{code:'ru',name:'Russisch',flag:'🇷🇺',languageCode:'ru'},{code:'es',name:'Spanisch',flag:'🇪🇸',languageCode:'es'},{code:'tr',name:'Türkisch',flag:'🇹🇷',languageCode:'tr'}];
         const SORTED_LANGUAGES = [ALL_LANGUAGES.find(l=>l.code==='de'),...ALL_LANGUAGES.filter(l=>l.code!=='de').sort((a,b)=>a.name.localeCompare(b.name))];
         const SITUATION_ITEMS = [
             { id: 'Kundenname', label: 'Kundenname', icon: ICONS.Users }, { id: 'Rufnummer', label: 'Rufnummer', icon: ICONS.Phone }, { id: 'Anbieter', label: 'Anbieter', icon: ICONS.Globe }, { id: 'Hardware', label: 'Hardware', icon: ICONS.Smartphone },
@@ -4350,6 +4350,18 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
         const STROKE_SIZES = [{ id: 1, width: 2, label: 'Dünn' }, { id: 2, width: 4, label: 'Mittel' }, { id: 3, width: 8, label: 'Dick' }];
         
         const MOCK_TRANSLATIONS = {
+            ru: {
+                Offer1Title: '1. Устройства, провайдер и использование',
+                Offer2Title: '2. Домохозяйство и другие продукты',
+                Offer3Title: '3. Телевидение и Wi-Fi',
+                CostHeader: 'Обзор расходов и заключение',
+                CostEinmalig: 'ЕДИНОРАЗОВО (€)', CostMonatlich1: 'ЕЖЕМЕСЯЧНО, 1-Й ГОД (€)', CostMonatlich: 'ЕЖЕМЕСЯЧНО (€)', CostMonatlich2: 'ЕЖЕМЕСЯЧНО, 2-Й ГОД (€)', CostSmartphone: 'РАССРОЧКА НА СМАРТФОН (€/МЕС)',
+                AgentLabel: 'ПЕРСОНАЛЬНЫЙ АГЕНТ', DateLabel: 'ДАТА', ValidUntilLabel: 'ПРЕДЛОЖЕНИЕ ДЕЙСТВУЕТ ДО',
+                Kundenname_Label: 'Имя клиента', Rufnummer_Label: 'Номер телефона', Anbieter_Label: 'Провайдер',
+                Hardware_Label: 'Устройства', Nutzung_Label: 'Использование', Haushalt_Label: 'Домохозяйство',
+                'Weitere Produkte_Label': 'Другие продукты', Fernsehen_Label: 'Телевидение', WiFi_Label: 'WiFi',
+                Gesamtkosten_Label: 'Общие расходы', StatusOpen: 'Открыто', StatusClosed: 'Завершено', StatusNeutral: 'Нейтрально',
+            },
             en: {
                 Offer1Title: '1. Hardware, Provider & Usage',
                 Offer2Title: '2. Household & Other Products',
@@ -9265,6 +9277,9 @@ const fileInputRef = useRef(null);
 
             const [displayLanguage, setDisplayLanguage] = useState('de');
             const [translatedText, setTranslatedText] = useState({});
+            // v45.3: Refs für die Live-Übersetzung getippter Texte (MyMemory)
+            const textDataLiveRef = useRef({});
+            const translatedTextLiveRef = useRef({});
             const [staticTranslations, setStaticTranslations] = useState({}); 
             const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
             const [oneDriveLink, setOneDriveLink] = useState('https://jefferson990.github.io/Verkaufsmappe/'); 
@@ -10314,6 +10329,20 @@ const handleFinishOfferClick = () => {
             const getCurrentQuestion = () => questionsData[activeCategory || 'default'][questionIndex];
             const handleTextChange = (key, val) => {
                 setTextData(prev => ({ ...prev, [key]: val }));
+                // v45.3: Deutscher Text geändert → gecachte Übersetzungen dieses Felds verwerfen
+                if (displayLanguage === 'de') {
+                    setTranslatedText(prev => {
+                        let changed = false;
+                        const next = {};
+                        for (const lang of Object.keys(prev || {})) {
+                            if (prev[lang] && Object.prototype.hasOwnProperty.call(prev[lang], key)) {
+                                const { [key]: _drop, ...rest } = prev[lang];
+                                next[lang] = rest; changed = true;
+                            } else { next[lang] = prev[lang]; }
+                        }
+                        return changed ? next : prev;
+                    });
+                }
                 // Merken: dieses Feld wurde digital (Tastatur) genutzt -> im Druck/Share anzeigen
                 try {
                     if (inputMode === 'keyboard') {
@@ -11333,7 +11362,11 @@ const renderPenToolButtons = () => {
             };
             const renderOfferInput = (key, labelKey, type = 'text') => { let ref, rawValue, strokesKey; const label = getStaticLabel(labelKey); if (key === 'einmalig' || key === 'monatlich1' || key === 'monatlich2' || key === 'smartphone') { ref = (key === 'einmalig' ? offerCost1Ref : key === 'monatlich1' ? offerCost2Ref : key === 'monatlich2' ? offerCost3Ref : offerCostSmartphoneRef); rawValue = offerData[`${key}Raw`] ?? ''; strokesKey = `cost_${key}`; } else if (key === 'agent') { ref = offerAgentRef; rawValue = getDisplayText('AgentName'); strokesKey = 'agent_name'; } else if (key === 'datum') { ref = offerDateRef; rawValue = getDisplayText('DateValue'); strokesKey = 'date_field'; } else if (key === 'gueltig') { ref = offerValidUntilRef; rawValue = getDisplayText('OfferValidUntil'); strokesKey = 'offer_valid_until'; } const isCostField = key.startsWith('monatlich') || key === 'einmalig' || key === 'smartphone'; const handleChange = (e) => { if (isCostField) { handleOfferCostChange(key, e.target.value); } else if (key === 'agent') { handleTextChange('AgentName', e.target.value); } else if (key === 'datum') { handleTextChange('DateValue', e.target.value); } else if (key === 'gueltig') { handleTextChange('OfferValidUntil', e.target.value); } }; const inputHeightClass = 'h-12'; return (<div className="flex flex-col"><label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">{label}</label><div className={`relative ${inputHeightClass} ${isCostField ? 'bg-slate-50' : 'bg-white'} border border-slate-300 rounded-lg transition-all`}><SmallInputCanvas inputMode={inputMode} canvasRef={ref} inputKey={strokesKey} inputValue={rawValue} inputType={type} onChange={handleChange} placeholder={label.split(' ')[0]} drawnStrokes={drawnStrokes} setDrawnStrokes={setDrawnStrokes} startDrawing={startDrawing} draw={draw} stopDrawing={stopDrawing} triggerRedraw={redrawCounter}/></div></div>); };
             
-            const translateBatch = null; // No API needed — all translations are local
+            const translateBatch = null; // Statische Labels lokal, getippte Texte via MyMemory (kostenlos)
+
+            // Refs aktuell halten (für die async Übersetzung)
+            useEffect(() => { textDataLiveRef.current = textData; }, [textData]);
+            useEffect(() => { translatedTextLiveRef.current = translatedText; }, [translatedText]);
 
             const handleLocalTranslation = useCallback((targetCode) => {
                 if (targetCode === 'de') return;
@@ -11343,13 +11376,47 @@ const renderPenToolButtons = () => {
                     triggerToast(`⚠️ Keine Übersetzung für ${langName} verfügbar`);
                     return;
                 }
-                // Static labels
+                // Static labels (lokal, sofort, offline)
                 const newStatic = {};
                 Object.keys(STATIC_LABELS).forEach(k => { if (dict[k]) newStatic[k] = dict[k]; });
                 setStaticTranslations(prev => ({ ...prev, [targetCode]: newStatic }));
-                // Clear user text translations (they stay in German — no API)
-                setTranslatedText(prev => ({ ...prev, [targetCode]: {} }));
                 triggerToast(`✅ ${langName} — Beschriftungen übersetzt`);
+
+                // === v45.3: GETIPPTE TEXTE kostenlos übersetzen (MyMemory API) ===
+                // api.mymemory.translated.net – gratis, kein API-Key, ~5000 Zeichen/Tag.
+                // Namen, Rufnummern, Datum & reine Zahlen werden NICHT übersetzt.
+                (async () => {
+                    try {
+                        const EXCLUDE_KEYS = ['AgentName', 'DateValue', 'OfferValidUntil'];
+                        const cached = translatedTextLiveRef.current?.[targetCode] || {};
+                        const entries = Object.entries(textDataLiveRef.current || {}).filter(([k, v]) =>
+                            !EXCLUDE_KEYS.includes(k) &&
+                            !k.toLowerCase().includes('kundenname') &&
+                            !k.toLowerCase().includes('rufnummer') &&
+                            typeof v === 'string' && v.trim().length > 1 &&
+                            /[A-Za-zÄÖÜäöüß]/.test(v) &&            // nur Texte mit Buchstaben
+                            !/^[\d.,:\s€%+-]+$/.test(v.trim()) &&    // keine reinen Zahlen/Preise
+                            !cached[k]                               // Cache: nicht doppelt übersetzen
+                        );
+                        if (entries.length === 0) return;
+                        triggerToast(`🌐 Übersetze ${entries.length} Texte → ${langName} …`);
+                        let done = 0;
+                        for (const [k, v] of entries.slice(0, 40)) {
+                            try {
+                                const res = await fetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(v.slice(0, 480)) + '&langpair=de|' + targetCode);
+                                if (!res.ok) continue;
+                                const j = await res.json();
+                                const t = j?.responseData?.translatedText;
+                                if (t && String(j?.responseStatus) === '200' && t.trim() && !/MYMEMORY WARNING/i.test(t)) {
+                                    setTranslatedText(prev => ({ ...prev, [targetCode]: { ...(prev[targetCode] || {}), [k]: t } }));
+                                    done++;
+                                }
+                            } catch(_) {}
+                        }
+                        if (done > 0) triggerToast(`✅ ${done} Texte auf ${langName} übersetzt`);
+                        else triggerToast('⚠️ Übersetzungsdienst gerade nicht erreichbar (Tageslimit?) – Beschriftungen bleiben übersetzt');
+                    } catch(_) {}
+                })();
             }, [triggerToast]);
 
             useEffect(() => {
@@ -14128,7 +14195,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v45.2</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v45.3</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
