@@ -5886,18 +5886,27 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                 telekom: {
                     label: 'MagentaTV', color: '#E2007A', colorLight: '#FFF0F8',
                     tagline: 'Bei MagentaTV immer dabei:',
-                    features: ['Über 180 Sender (167 in HD)','MagentaTV+ Mediathek','Für zuhause und unterwegs','Restart & Aufnahme-Funktion'],
+                    features: ['Über 180 Sender (167 in HD)','MagentaTV+ Mediathek','Für zuhause und unterwegs','Restart, Timeshift & 100h Aufnahme'],
                     rows: [
-                        { icon:'🔌', label:'Tarif- & Anschlusskosten', range:'7 – 30 €',  tarif:{ flex:11, smart:7,  mega:30 } },
-                        { icon:'🎬', label:'Netflix',                   range:'enthalten', tarif:{ flex:0,  smart:0,  mega:0  } },
-                        { icon:'🎥', label:'Disney+',                   range:'enthalten', tarif:{ flex:0,  smart:0,  mega:0  } },
+                        { icon:'🔌', label:'Grundpreis (nach 6 Mon. gratis)', range:'11 – 30 €',  tarif:{ smart:11, stream:17, mega:30 } },
+                        { icon:'📺', label:'RTL+ Premium',                     range:'enthalten', tarif:{ smart:0,  stream:0,  mega:0  } },
+                        { icon:'🎬', label:'Netflix',                           range:'',          tarif:{ smart:0,  stream:0,  mega:0  } },
+                        { icon:'🎥', label:'Disney+',                           range:'',          tarif:{ smart:0,  stream:0,  mega:0  } },
+                        { icon:'🍎', label:'Apple TV+',                         range:'',          tarif:{ smart:0,  stream:0,  mega:0  } },
                     ],
                     cols: [
-                        { id:'flex',  label:'Flex',       sub:'monatl. kündbar', checks:[true,false,false], badge:null },
-                        { id:'smart', label:'Smart',      sub:'+ RTL+ Premium',  checks:[true,false,false], badge:'⭐ Empfohlen' },
-                        { id:'mega',  label:'MegaStream', sub:'All-Inclusive',   checks:[true,true, true],  badge:null },
+                        { id:'smart',  label:'Smart',       sub:'6 Mon. gratis, dann 11 €', checks:[true,true,false,false,false], badge:'⭐ Empfohlen' },
+                        { id:'stream', label:'SmartStream', sub:'6 Mon. gratis, dann 17 €', checks:[true,true,true, true, false], badge:null },
+                        { id:'mega',   label:'MegaStream',  sub:'6 Mon. gratis, dann 30 €', checks:[true,true,true, true, true],  badge:null },
                     ],
-                    totals:{ flex:11, smart:7, mega:30 }, recommended:'smart',
+                    totals:{ smart:11, stream:17, mega:30 }, recommended:'smart',
+                    // Hinweise für die Anzeige (optional, Info-Text unter der Tabelle)
+                    footnotes: [
+                        'Smart: RTL+ Premium inklusive',
+                        'SmartStream: + Netflix (mit Werbung) + Disney+ (mit Werbung)',
+                        'MegaStream: + Netflix Standard + Disney+ Standard + Apple TV+',
+                        'Alle: 6 Monate 0 €, 24 Mon. Laufzeit, ohne Telekom-Anschluss buchbar',
+                    ],
                 },
                 vodafone: {
                     label: 'Giga TV', color: '#E50000', colorLight: '#FFF0F0',
@@ -6110,9 +6119,16 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                           <Icon d={ICONS.CheckCircle} size={16}/> {recTotal.toFixed(2)} € übernehmen
                         </button>
                       </div>
-                    </div>
 
-                    {/* FOOTER */}
+                      {/* Footnotes (MagentaTV Details) */}
+                      {pd.footnotes && pd.footnotes.length > 0 && (
+                        <div style={{padding:'10px 14px',background:'#f8fafc',borderRadius:10,border:'1px solid #e2e8f0',marginTop:10}}>
+                          {pd.footnotes.map((fn,fi) => (
+                            <div key={fi} style={{fontSize:10,color:'#64748b',fontWeight:600,lineHeight:1.5}}>{fn}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <div style={{padding:'12px 24px',borderTop:'1px solid #f1f5f9',background:'#fafcff',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
                       <span style={{fontSize:'10px',color:'#94a3b8',fontWeight:500}}>Preise ohne Gewähr · Stand März 2026</span>
                       <button onClick={onClose} style={{padding:'7px 18px',borderRadius:'10px',border:'1.5px solid #e2e8f0',background:'white',color:'#64748b',fontWeight:700,fontSize:'13px',cursor:'pointer',outline:'none'}}>Schließen</button>
@@ -7832,6 +7848,8 @@ const highResHTML = buildHighResBundleHTML(d);
 // pen      = Stift: moderate Druck-/Tempo-Reaktion (lebendige, aber kontrollierte Linie)
 // fountain = Füller: starke Reaktion – langsam/fest = breit, schnell/leicht = dünn (Tinten-Look)
 // ballpen  = Kugelschreiber: konstant dünn, nur Transparenz-Charakter (echtes Kuli-Gefühl)
+// v45.6: Globaler Zugriff auf aktuelle Stiftfarbe (für Top-Level Overlay-Render)
+function colorRefGlobal() { return window.__currentPenColor || '#1d4ed8'; }
 function getInkToolDynamics(toolId) {
     if (toolId === 'fountain') return { pGain: 0.70, vGain: 0.55, fMin: 0.55, fMax: 1.50, smooth: 0.22 };
     if (toolId === 'pen')      return { pGain: 0.40, vGain: 0.18, fMin: 0.78, fMax: 1.22, smooth: 0.30 };
@@ -7982,27 +8000,19 @@ function renderInkTip(e, stroke) {
         ctx.clearRect(0, 0, rect.width, rect.height);
         const a = pts[pts.length - 2];
         const b = pts[pts.length - 1];
-        ctx.strokeStyle = stroke.color || '#1d4ed8';
+        // v45.6: strokeStyle IMMER aus der echten Stroke-Farbe (nie Fallback-Blau),
+        // sonst flackert auf iPad/Safari kurz die falsche Farbe auf.
+        ctx.strokeStyle = stroke.color || colorRefGlobal();
         ctx.globalAlpha = stroke.opacity != null ? stroke.opacity : 1;
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.lineWidth = Math.max(0.5, b.width != null ? b.width : (stroke.baseLineWidth || 2));
         ctx.beginPath();
-        // Echte Tinte endet bei mid(a,b) → Tip-Segment bis zum echten letzten Punkt
+        // NUR das fehlende Stück echte Tinte: von mid(a,b) bis zum echten letzten Punkt b.
+        // KEINE getPredictedEvents()-Verlängerung mehr! Die Prediction schießt auf iPad
+        // über die Stiftspitze hinaus → erzeugt den "nachziehenden"/versetzten Geist,
+        // der vom committeten Strich kurz darauf überschrieben wird (= das Flackern).
         ctx.moveTo((a.x + b.x) / 2, (a.y + b.y) / 2);
         ctx.lineTo(b.x, b.y);
-        // Stylus-Prediction (Safari/Chrome): max. 2 Punkte, max. 18px – kein Überschießen
-        let predicted = [];
-        try { if (e && e.getPredictedEvents) predicted = e.getPredictedEvents() || []; } catch (_) {}
-        let used = 0;
-        for (const pe of predicted) {
-            if (used >= 2) break;
-            const cx = pe.clientX - rect.left;
-            const cy = pe.clientY - rect.top;
-            const dx = cx - b.x, dy = cy - b.y;
-            if ((dx * dx + dy * dy) > 324) break; // 18px²
-            ctx.lineTo(cx, cy);
-            used++;
-        }
         ctx.stroke();
         ctx.globalAlpha = 1;
     } catch (_) {}
@@ -8919,7 +8929,7 @@ const toolRef = useRef('pen');
             const hasMigratedSituationRef = useRef(false);
             
             useEffect(() => { toolRef.current = tool; }, [tool]);
-            useEffect(() => { colorRef.current = color; }, [color]);
+            useEffect(() => { colorRef.current = color; window.__currentPenColor = color; }, [color]);
             useEffect(() => { strokeWidthRef.current = strokeWidth; }, [strokeWidth]);
             useEffect(() => { eraserSizeRef.current = eraserSize; }, [eraserSize]);
             useEffect(() => { opacityRef.current = opacity; }, [opacity]);
@@ -14195,7 +14205,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v45.3</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v45.6</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
@@ -14693,7 +14703,7 @@ const handlePDFShare = async () => {
                                 <div style={{padding:'7px 10px',display:'flex',flexDirection:'column',gap:'5px'}}>
                                     <div style={{position:'relative'}}>
                                         {!isCustomProvider
-                                            ?<><select value={providerSelect} onChange={e=>{if(e.target.value==='Sonstiges'){setIsCustomProvider(true);setProviderSelect('Sonstiges');}else{setProviderSelect(e.target.value);setIsCustomProvider(false);setWlanRecommendation('');setSpeedRecommendation('');}}}
+                                            ?<><select value={providerSelect} onChange={e=>{if(e.target.value==='Sonstiges'){setIsCustomProvider(true);setProviderSelect('Sonstiges');setProviderMode('keyboard');}else{setProviderSelect(e.target.value);setIsCustomProvider(false);setWlanRecommendation('');setSpeedRecommendation('');}}}
                                                 style={{width:'100%',height:'30px',background:'#f8fafc',border:`1.5px solid ${providerSelect?'#22c55e':'#f87171'}`,borderRadius:'8px',paddingLeft:'8px',paddingRight:'20px',fontSize:'10px',fontWeight:600,color:'#374151',outline:'none',appearance:'none',cursor:'pointer'}}>
                                                 <option value="" disabled hidden>DSL-Anbieter *</option>
                                                 <option selected>Telekom</option><option>1&1</option><option>Vodafone</option><option>O2</option><option value="Sonstiges">Sonstiges</option>
@@ -14705,7 +14715,7 @@ const handlePDFShare = async () => {
                                                     <button onClick={()=>{setIsCustomProvider(false);setWlanRecommendation('');setSpeedRecommendation('');setProviderSelect('');setCustomProvider('');}} style={{width:'22px',height:'22px',borderRadius:'5px',border:'1px solid #e2e8f0',background:'#f8fafc',color:'#94a3b8',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon d={ICONS.List} size={9}/></button>
                                                 </div>
                                                 {providerMode==='keyboard'
-                                                    ?<input type="text" value={customProvider} onChange={e=>setCustomProvider(e.target.value)} placeholder="Anbieter..." style={{width:'100%',height:'100%',padding:'0 55px 0 8px',fontSize:'10px',fontWeight:600,color:'#166534',background:'transparent',border:'none',outline:'none'}} autoFocus/>
+                                                    ?<input type="text" value={customProvider} onChange={e=>setCustomProvider(e.target.value)} onPointerDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} placeholder="Anbieter..." style={{width:'100%',height:'100%',padding:'0 55px 0 8px',fontSize:'10px',fontWeight:600,color:'#166534',background:'transparent',border:'none',outline:'none',touchAction:'auto',pointerEvents:'auto'}} autoFocus/>
                                                     :<><canvas ref={providerCanvasRef} className="absolute inset-0 w-full h-full cursor-crosshair" onPointerDown={e=>startDrawing(e,providerCanvasRef,'provider')} onPointerMove={e=>draw(e,providerCanvasRef,'provider')} onPointerUp={e=>stopDrawing(e,providerCanvasRef)} onPointerLeave={e=>stopDrawing(e,providerCanvasRef)} onPointerCancel={e=>stopDrawing(e,providerCanvasRef)}/><button onClick={()=>clearCanvas(providerCanvasRef,'provider')} style={{position:'absolute',right:'3px',top:'50%',transform:'translateY(-50%)',width:'22px',height:'22px',borderRadius:'5px',border:'1px solid #fecaca',background:'#fef2f2',color:'#ef4444',cursor:'pointer',zIndex:30,display:'flex',alignItems:'center',justifyContent:'center'}}><Icon d={ICONS.Trash} size={9}/></button></>
                                                 }
                                             </div>
