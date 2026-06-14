@@ -7903,53 +7903,28 @@ function drawVariableWidthPath(ctx, pts, rawPts, baseLW) {
 // Das Overlay zeichnet das fehlende letzte Stück + Stylus-Prediction bis zur Stiftspitze
 // auf ein fixiertes Canvas ÜBER dem Zeichen-Canvas. Wird pro Frame neu gezeichnet und
 // beim Abheben entfernt → gespeicherte Striche/Redraw bleiben 100% unverändert.
-function getInkTipOverlay() {
-    let ov = window.__inkTipOverlay;
-    if (!ov) {
-        ov = document.createElement('canvas');
-        ov.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none;z-index:99999;display:none;';
-        document.body.appendChild(ov);
-        window.__inkTipOverlay = ov;
-    }
-    return ov;
-}
-function positionInkTipOverlay(canvas) {
-    try {
-        const ov = getInkTipOverlay();
-        const rect = canvas.getBoundingClientRect();
-        if (!rect || rect.width < 2 || rect.height < 2) return null;
-        const dpr = window.devicePixelRatio || 1;
-        ov.style.left = rect.left + 'px';
-        ov.style.top = rect.top + 'px';
-        ov.style.width = rect.width + 'px';
-        ov.style.height = rect.height + 'px';
-        const w = Math.max(1, Math.round(rect.width * dpr));
-        const h = Math.max(1, Math.round(rect.height * dpr));
-        if (ov.width !== w || ov.height !== h) { ov.width = w; ov.height = h; }
-        ov.__rect = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
-        ov.__dpr = dpr;
-        ov.style.display = 'block';
-        const ctx = ov.getContext('2d');
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, rect.width, rect.height);
-        return ov;
-    } catch (_) { return null; }
-}
+// v45.8: LIVE-TIP-OVERLAY KOMPLETT DEAKTIVIERT.
+// Das separate Overlay-Canvas (z-index 99999) war auf iPad/Safari die Ursache der
+// sporadischen schwarzen, leicht versetzten Linie während des Schreibens: Safari
+// komponiert das zweite Layer kurz mit falscher Position/Default-Farbe (schwarz),
+// bevor die echte Tinte es überschreibt. Auf Android unsichtbar → trat dort nie auf.
+// Nutzen (minimale Latenz-Kaschierung) steht in keinem Verhältnis zum Fehler.
+// Alle Funktionen sind jetzt No-Ops; das echte Live-Rendering läuft direkt auf dem
+// Zeichen-Canvas (siehe draw()), das ist sauber und einlagig.
+function getInkTipOverlay() { return null; }
+function positionInkTipOverlay(canvas) { return null; }
 function hideInkTipOverlay() {
+    // Falls aus einer früheren Session noch ein Overlay-Element existiert: entfernen.
     try {
         const ov = window.__inkTipOverlay;
-        if (!ov) return;
-        const ctx = ov.getContext('2d');
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, ov.width, ov.height);
-        ov.style.display = 'none';
-        ov.__rect = null;
+        if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+        window.__inkTipOverlay = null;
     } catch (_) {}
 }
-// v44.2: Textmarker-Live-Vorschau – GANZER Strich als EIN Pfad auf dem Overlay.
-// Segmentweises Zeichnen würde die Transparenz an den Übergängen aufaddieren
-// (fleckige Verdunkelungen). Ein Pfad = perfekt gleichmäßige Markerfarbe.
-// Commit auf den echten Canvas erfolgt erst beim Abheben (stopDrawing), ebenfalls als ein Pfad.
+function renderHighlighterPreview(stroke) { /* deaktiviert – Marker rendert direkt auf Canvas */ }
+function renderInkTip(e, stroke) { /* deaktiviert – Tinte rendert direkt auf Canvas */ }
+
+// buildMidpointPath bleibt – wird beim echten Commit (stopDrawing) für glatte Kurven gebraucht.
 function buildMidpointPath(ctx, fp) {
     ctx.moveTo(fp[0].x, fp[0].y);
     if (fp.length === 2) { ctx.lineTo(fp[1].x, fp[1].y); return; }
@@ -7959,64 +7934,7 @@ function buildMidpointPath(ctx, fp) {
     }
     ctx.lineTo(fp[fp.length - 1].x, fp[fp.length - 1].y);
 }
-function renderHighlighterPreview(stroke) {
-    try {
-        const ov = window.__inkTipOverlay;
-        if (!ov || ov.style.display === 'none' || !ov.__rect) return;
-        const fp = stroke && stroke.points;
-        if (!fp || fp.length === 0) return;
-        const rect = ov.__rect;
-        const dpr = ov.__dpr || 1;
-        const ctx = ov.getContext('2d');
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, rect.width, rect.height);
-        ctx.strokeStyle = stroke.color || '#facc15';
-        ctx.globalAlpha = stroke.opacity != null ? stroke.opacity : 0.4;
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.lineWidth = Math.max(0.5, (stroke.baseLineWidth || 2) * 3);
-        ctx.beginPath();
-        if (fp.length === 1) {
-            ctx.fillStyle = stroke.color || '#facc15';
-            ctx.arc(fp[0].x, fp[0].y, ctx.lineWidth / 2, 0, Math.PI * 2);
-            ctx.fill();
-        } else {
-            buildMidpointPath(ctx, fp);
-            ctx.stroke();
-        }
-        ctx.globalAlpha = 1;
-    } catch (_) {}
-}
 
-function renderInkTip(e, stroke) {
-    try {
-        const ov = window.__inkTipOverlay;
-        if (!ov || ov.style.display === 'none' || !ov.__rect) return;
-        const pts = stroke && stroke.points;
-        if (!pts || pts.length < 2) return;
-        const rect = ov.__rect;
-        const dpr = ov.__dpr || 1;
-        const ctx = ov.getContext('2d');
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, rect.width, rect.height);
-        const a = pts[pts.length - 2];
-        const b = pts[pts.length - 1];
-        // v45.6: strokeStyle IMMER aus der echten Stroke-Farbe (nie Fallback-Blau),
-        // sonst flackert auf iPad/Safari kurz die falsche Farbe auf.
-        ctx.strokeStyle = stroke.color || colorRefGlobal();
-        ctx.globalAlpha = stroke.opacity != null ? stroke.opacity : 1;
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.lineWidth = Math.max(0.5, b.width != null ? b.width : (stroke.baseLineWidth || 2));
-        ctx.beginPath();
-        // NUR das fehlende Stück echte Tinte: von mid(a,b) bis zum echten letzten Punkt b.
-        // KEINE getPredictedEvents()-Verlängerung mehr! Die Prediction schießt auf iPad
-        // über die Stiftspitze hinaus → erzeugt den "nachziehenden"/versetzten Geist,
-        // der vom committeten Strich kurz darauf überschrieben wird (= das Flackern).
-        ctx.moveTo((a.x + b.x) / 2, (a.y + b.y) / 2);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-    } catch (_) {}
-}
 
         const redrawCanvas = (canvas, strokes, scaleFactor = 1, key = '') => {
             if (!canvas) return;
@@ -11058,10 +10976,9 @@ const handleFinishOfferClick = () => {
 
                     pts.push({ x, y, pressure: prRaw, width: smoothedWidth, wf });
 
-                    // v44.2: Textmarker wird NICHT segmentweise auf den Canvas gezeichnet
-                    // (Transparenz würde sich an Übergängen aufaddieren) → Ein-Pfad-Vorschau
-                    // auf dem Overlay, Commit als ein Pfad beim Abheben.
-                    if (currentTool === 'highlighter') continue;
+                    // v45.8: Textmarker rendert jetzt LIVE direkt auf dem Canvas (Overlay entfernt).
+                    // Leichte Transparenz-Überlappung an Segmentgrenzen wird beim Abheben korrigiert
+                    // (stopDrawing zeichnet den Marker als EINEN gleichmäßigen Pfad neu).
 
                     // Live-Bezier-Rendering: Quadratic Curve für flüssige Linien
                     if (pts.length >= 3) {
@@ -11104,14 +11021,7 @@ const handleFinishOfferClick = () => {
                         ctx.restore();
                     }
                 }
-
-                // === v44.0 LIVE-TIP: fehlendes letztes Stück + Prediction bis zur Stiftspitze ===
-                // v44.2: Textmarker → komplette Ein-Pfad-Vorschau statt Tip-Segment
-                if (currentTool === 'highlighter') {
-                    renderHighlighterPreview(stroke);
-                } else if (currentTool !== 'eraser') {
-                    renderInkTip(nativeEv, stroke);
-                }
+                // v45.8: Live-Tip-Overlay entfernt – kein zweites Layer mehr (iPad-Flacker-Fix).
             }, []);
 
             const stopDrawing = useCallback((e, ref) => {
@@ -11203,25 +11113,14 @@ const handleFinishOfferClick = () => {
                 }
 
                 const ctx = canvas.getContext('2d');
-                if (finishedStroke && finishedStroke.tool === 'highlighter' && finishedStroke.points.length >= 1) {
-                    // v44.2: Textmarker-Commit – EIN Pfad, EIN stroke() → gleichmäßige Transparenz.
-                    // ctx-State (destination-over + Marker-Alpha) stammt noch aus startDrawing.
-                    try {
-                        const fp = finishedStroke.points;
-                        ctx.lineWidth = Math.max(0.5, (finishedStroke.baseLineWidth || 2) * 3);
-                        ctx.beginPath();
-                        if (fp.length === 1) {
-                            ctx.fillStyle = finishedStroke.color || '#facc15';
-                            ctx.arc(fp[0].x, fp[0].y, ctx.lineWidth / 2, 0, Math.PI * 2);
-                            ctx.fill();
-                        } else {
-                            buildMidpointPath(ctx, fp);
-                            ctx.stroke();
-                        }
-                    } catch(_) {}
+                if (finishedStroke && finishedStroke.tool === 'highlighter') {
+                    // v45.8: Marker wurde bereits live segmentweise gezeichnet (Overlay entfernt).
+                    // KEIN erneuter Pfad hier – das würde die Deckkraft verdoppeln.
+                    // Beim nächsten redrawCanvas (z.B. nach State-Update) wird der Marker
+                    // ohnehin als EIN gleichmäßiger Pfad sauber neu gerendert.
                 } else if (finishedStroke && finishedStroke.points.length >= 2) {
                     // v44.0: Endstück committen – die Live-Kurve endet bei mid(a,b), das letzte
-                    // Stück bis zum echten Endpunkt wurde bisher nur vom Tip-Overlay angezeigt.
+                    // Stück bis zum echten Endpunkt wird hier ergänzt.
                     try {
                         const fp = finishedStroke.points;
                         const a = fp[fp.length - 2];
@@ -14216,7 +14115,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v45.6</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v45.8</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
