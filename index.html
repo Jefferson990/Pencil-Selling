@@ -8594,6 +8594,7 @@ function App() {
                 const doRedraw = () => {
                     const canvas = offerCost3Ref?.current;
                     if (!canvas) return;
+                    if (window.__activeDrawingCanvas === canvas) { canvas.__redrawPending = true; return; } // v46.1
                     const rect = canvas.getBoundingClientRect();
                     if (!rect.width || !rect.height) return;
                     const dpr = window.devicePixelRatio || 1;
@@ -8811,6 +8812,12 @@ const toolRef = useRef('pen');
                     });
                 };
                 const handle = () => {
+                    // === v46.1: Während ein Stift-Strich läuft NICHT neu skalieren/zeichnen ===
+                    // visualViewport.resize feuert auf iPad/Safari ständig während des Schreibens
+                    // (Pencil, Browser-UI). Das löste setRedrawCounter → canvas.width-Reset aus →
+                    // die Schrift verschwand kurz. Wir setzen aus und holen den Redraw nach dem
+                    // Abheben nach (handlePostStroke unten).
+                    if (window.__activeDrawingCanvas) { window.__recalcPending = true; return; }
                     // Stabilitaets-Cache auf allen Offer-Canvases zuruecksetzen, damit
                     // redrawCanvas beim naechsten Aufruf sofort neu misst (kein staler Wert).
                     [offerCanvasRef1, offerCanvasRef2, offerCanvasRef3].forEach(ref => {
@@ -10417,6 +10424,8 @@ const handleFinishOfferClick = () => {
                 const resizeCanvas = (ref, key) => { 
                     const canvas = ref.current; 
                     if (!canvas || !key) return; 
+                    // v46.1: aktiv bezeichneten Canvas nicht anfassen – canvas.width-Reset löscht den Strich
+                    if (window.__activeDrawingCanvas === canvas) { canvas.__redrawPending = true; return; }
                     const rect = canvas.getBoundingClientRect(); 
                     if (!rect || rect.width === 0 || rect.height === 0) return; 
                     const dpr = window.devicePixelRatio || 1; 
@@ -10487,6 +10496,13 @@ const handleFinishOfferClick = () => {
                     list.forEach(({ ref, key }) => {
                         const c = ref.current;
                         if (!c) return;
+                        // === v46.1: Aktiv bezeichneten Canvas NICHT anfassen ===
+                        // Das canvas.width-Resize unten LÖSCHT den Canvas-Inhalt (Browser-Verhalten).
+                        // Während ein Strich live gezeichnet wird, würde das die Schrift kurz
+                        // verschwinden lassen (sporadisch auf iPad, weil dort DPR/Layout sub-pixel
+                        // schwankt → needW≠width → Reset). Nach dem Abheben zieht stopDrawing
+                        // den ausstehenden Redraw ohnehin nach.
+                        if (window.__activeDrawingCanvas === c) { c.__redrawPending = true; return; }
                         // Canvas neu skalieren falls nötig (Grid-Kacheln nach Step-Wechsel haben Größe 0)
                         const rect = c.getBoundingClientRect();
                         if (rect.width > 0 && rect.height > 0) {
@@ -10519,6 +10535,8 @@ const handleFinishOfferClick = () => {
                 const doStepRedraw = () => {
                     const c = stepCanvasRef.current;
                     if (!c) return;
+                    // v46.1: aktiv bezeichneten Canvas nicht resetten (löscht den laufenden Strich)
+                    if (window.__activeDrawingCanvas === c) { c.__redrawPending = true; return; }
                     const rect = c.getBoundingClientRect();
                     if (rect.width === 0 || rect.height === 0) return;
                     const dpr = window.devicePixelRatio || 1;
@@ -11179,10 +11197,16 @@ const handleFinishOfferClick = () => {
                 ctx.globalAlpha = 1;
                 ctx.globalCompositeOperation = 'source-over';
 
-                // v46.0: Falls während des Strichs ein Redraw unterdrückt wurde → jetzt nachziehen,
-                // damit Skalierung/Position (z.B. nach Orientierungswechsel) sauber stimmt.
-                if (canvas.__redrawPending) {
-                    canvas.__redrawPending = false;
+                // v46.0/46.1: Falls während des Strichs ein Redraw/Recalc unterdrückt wurde →
+                // jetzt nachziehen, damit Skalierung/Position sauber stimmt.
+                const needRecalc = window.__recalcPending || canvas.__redrawPending;
+                if (canvas.__redrawPending) canvas.__redrawPending = false;
+                if (window.__recalcPending) {
+                    window.__recalcPending = false;
+                    // globalen Recalc (Viewport/Shift) anstoßen – einmal, nach dem Abheben
+                    try { window.dispatchEvent(new Event('ps-canvas-recalc')); } catch(_) {}
+                }
+                if (needRecalc) {
                     requestAnimationFrame(() => { setRedrawCounter(r => r + 1); });
                 }
             }, [setDrawnStrokes]);
@@ -14167,7 +14191,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v46.0</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v46.1</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
