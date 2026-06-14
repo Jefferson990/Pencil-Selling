@@ -5312,23 +5312,11 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
         const RoamingModal = ({ isOpen, onClose }) => {
   const [zone, setZone] = useState('eu_roam');
   const [tab, setTab] = useState('info');
-  const [fuPreis, setFuPreis] = useState('');       // DE GB
-  const [fuNettoBrutto, setFuNettoBrutto] = useState(''); // brutto price
-  const [fuUnlimited, setFuUnlimited] = useState(false); // unlimited tarif toggle
-  const [fuJahr, setFuJahr] = useState('2026'); // Berechnungsjahr
+  const [bruttoPreis, setBruttoPreis] = useState('');
+  const [deGb, setDeGb] = useState('');        // optionaler DE-Volumen-Deckel
+  const [fuYear, setFuYear] = useState('2026'); // Aufschlag-Jahr (Großhandelspreis)
 
   if (!isOpen) return null;
-
-  const GWSP_MAP = {'2023':1.80,'2024':1.55,'2025':1.30,'2026':1.10};
-  const GWSP = GWSP_MAP[fuJahr] || 1.10;
-  const fuDeGb = parseFloat((fuPreis||'').replace(',','.')) || 0;
-  const fuBrutto = parseFloat((fuNettoBrutto||'').replace(',','.')) || 0;
-  const fuNetto = fuBrutto > 0 ? fuBrutto / 1.19 : 0;
-  const fuGbRaw = fuNetto > 0 ? Math.round((fuNetto / GWSP) * 2 * 10) / 10 : null;
-  // Unlimited: kein DE-Deckel — Formel gilt direkt
-  const fuGb = fuGbRaw !== null ? ((!fuUnlimited && fuDeGb > 0) ? Math.min(fuGbRaw, fuDeGb) : fuGbRaw) : null;
-  const fuCapped = !fuUnlimited && fuGbRaw !== null && fuDeGb > 0 && fuGbRaw > fuDeGb;
-  const fuCol = fuGb === null ? '#94a3b8' : fuGb >= 80 ? '#10b981' : fuGb >= 40 ? '#f59e0b' : '#3b82f6';
 
   const ZONES = {
     eu_roam: {
@@ -5457,7 +5445,7 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
 
       <div className="flex flex-1 overflow-hidden">
 
-        {/* SIDEBAR */}
+        {/* SIDEBAR — nur Szenario-Auswahl (Rechner ist im Tab) */}
         <div className="w-52 shrink-0 border-r border-slate-100 p-3 flex flex-col gap-2 overflow-y-auto" style={{background:'#f8fafc'}}>
           <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1 px-1">Szenario wählen</div>
           {Object.entries(ZONES).map(([k,v])=>(
@@ -5469,93 +5457,11 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
               </div>
             </button>
           ))}
-
-          {/* Fair-Use Rechner — dynamisch in Sidebar */}
-          <div style={{marginTop:'8px',borderTop:'1px solid #e2e8f0',paddingTop:'10px'}}>
-            <div style={{fontSize:'9px',fontWeight:800,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'8px'}}>📊 Fair-Use Rechner 2026</div>
-
-            {/* GB in Deutschland */}
-            <div style={{marginBottom:'6px'}}>
-              <div style={{fontSize:'9px',fontWeight:700,color:'#64748b',marginBottom:'3px'}}>GB in Deutschland</div>
-              <div style={{position:'relative'}}>
-                <input type="number" min="0" step="1" placeholder={fuUnlimited ? '∞ Unlimited' : 'z.B. 40'}
-                  value={fuUnlimited ? '' : fuPreis} onChange={e=>setFuPreis(e.target.value)}
-                  disabled={fuUnlimited}
-                  style={{width:'100%',padding:'7px 32px 7px 10px',border:'1.5px solid #e2e8f0',borderRadius:'8px',fontSize:'14px',fontWeight:800,color: fuUnlimited?'#94a3b8':'#1e293b',outline:'none',boxSizing:'border-box',background: fuUnlimited?'#f1f5f9':'#fff'}}
-                  onFocus={e=>e.target.style.borderColor='#3b82f6'}
-                  onBlur={e=>e.target.style.borderColor='#e2e8f0'}
-                />
-                <span style={{position:'absolute',right:'8px',top:'50%',transform:'translateY(-50%)',fontSize:fuUnlimited?'16px':'10px',color:'#94a3b8',fontWeight:700}}>{fuUnlimited?'∞':'GB'}</span>
-              </div>
-              {/* Unlimited Toggle */}
-              <label style={{display:'flex',alignItems:'center',gap:'6px',marginTop:'5px',cursor:'pointer',userSelect:'none'}}>
-                <div onClick={()=>setFuUnlimited(v=>!v)} style={{width:'28px',height:'16px',borderRadius:'99px',background:fuUnlimited?'#3b82f6':'#e2e8f0',position:'relative',transition:'background 0.2s',flexShrink:0}}>
-                  <div style={{position:'absolute',top:'2px',left:fuUnlimited?'14px':'2px',width:'12px',height:'12px',borderRadius:'50%',background:'#fff',transition:'left 0.2s',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
-                </div>
-                <span style={{fontSize:'9px',fontWeight:700,color:fuUnlimited?'#2563eb':'#64748b'}}>Unlimited-Tarif (∞ in DE)</span>
-              </label>
-            </div>
-
-            {/* Monatspreis brutto */}
-            <div style={{marginBottom:'8px'}}>
-              <div style={{fontSize:'9px',fontWeight:700,color:'#64748b',marginBottom:'3px'}}>Monatspreis (brutto €)</div>
-              <div style={{position:'relative'}}>
-                <input type="number" min="0" step="0.01" placeholder="z.B. 39,99"
-                  value={fuNettoBrutto} onChange={e=>setFuNettoBrutto(e.target.value)}
-                  style={{width:'100%',padding:'7px 28px 7px 10px',border:'1.5px solid #e2e8f0',borderRadius:'8px',fontSize:'14px',fontWeight:800,color:'#1e293b',outline:'none',boxSizing:'border-box',background:'#fff'}}
-                  onFocus={e=>e.target.style.borderColor='#3b82f6'}
-                  onBlur={e=>e.target.style.borderColor='#e2e8f0'}
-                />
-                <span style={{position:'absolute',right:'8px',top:'50%',transform:'translateY(-50%)',fontSize:'10px',color:'#94a3b8',fontWeight:700}}>€</span>
-              </div>
-            </div>
-
-            {/* Jahr / Rate wählen */}
-            <div style={{marginBottom:'8px'}}>
-              <div style={{fontSize:'9px',fontWeight:700,color:'#64748b',marginBottom:'4px'}}>Berechnungsjahr (Großhandelspreis)</div>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'3px'}}>
-                {[['2023','1,80€'],['2024','1,55€'],['2025','1,30€'],['2026','1,10€']].map(([yr,rate])=>(
-                  <button key={yr} onClick={()=>setFuJahr(yr)}
-                    style={{padding:'4px 2px',borderRadius:'6px',border:`1.5px solid ${fuJahr===yr?'#3b82f6':'#e2e8f0'}`,background:fuJahr===yr?'#eff6ff':'#f8fafc',cursor:'pointer',textAlign:'center'}}>
-                    <div style={{fontSize:'9px',fontWeight:800,color:fuJahr===yr?'#1d4ed8':'#374151'}}>{yr}</div>
-                    <div style={{fontSize:'8px',color:fuJahr===yr?'#3b82f6':'#94a3b8',fontWeight:600}}>{rate}</div>
-                  </button>
-                ))}
-              </div>
-              {fuJahr==='2023'&&<div style={{fontSize:'8px',color:'#f59e0b',marginTop:'3px',fontWeight:700}}>⚠️ o2-Vertragsberechnung oft mit diesem Satz</div>}
-            </div>
-            <div style={{borderRadius:'10px',padding:'10px',textAlign:'center',background: fuGb!==null ? fuCol+'15' : '#f1f5f9',border:`1.5px solid ${fuGb!==null?fuCol+'40':'#e2e8f0'}`,transition:'all 0.2s'}}>
-              <div style={{fontSize:'24px',fontWeight:900,color: fuGb!==null?fuCol:'#cbd5e1',lineHeight:1}}>{fuGb!==null?`~${fuGb}`:'–'}</div>
-              <div style={{fontSize:'10px',fontWeight:700,color:'#64748b',marginTop:'2px'}}>GB im EU-Ausland</div>
-
-              {fuUnlimited && fuGb !== null && (
-                <div style={{marginTop:'5px',padding:'4px 6px',borderRadius:'5px',background:'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.3)',fontSize:'8px',fontWeight:800,color:'#93c5fd'}}>
-                  🇩🇪 ∞ in DE &nbsp;→&nbsp; 🇪🇺 ~{fuGb} GB max. im Ausland
-                </div>
-              )}
-              {fuUnlimited && fuGb !== null && (
-                <div style={{marginTop:'4px',padding:'3px 6px',borderRadius:'4px',background:'rgba(245,158,11,0.15)',border:'1px solid rgba(245,158,11,0.3)',fontSize:'8px',color:'#fcd34d',fontWeight:700}}>
-                  ⚠️ danach ~1,10 €/GB Aufpreis
-                </div>
-              )}
-              {fuCapped && <div style={{marginTop:'5px',padding:'3px 6px',borderRadius:'5px',background:'#fef3c7',border:'1px solid #fde68a',fontSize:'8px',fontWeight:800,color:'#92400e'}}>📌 Formel: {fuGbRaw} GB → Deckel: {fuDeGb} GB</div>}
-              {fuGb!==null && !fuCapped && !fuUnlimited && fuDeGb>0 && <div style={{marginTop:'5px',padding:'3px 6px',borderRadius:'5px',background:'#dcfce7',border:'1px solid #bbf7d0',fontSize:'8px',fontWeight:700,color:'#166534'}}>✅ Fair-Use unter DE-Volumen</div>}
-
-              {/* Vergleichsbalken DE vs EU */}
-              {fuGb!==null && fuDeGb>0 && (
-                <div style={{marginTop:'8px'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',fontSize:'8px',color:'#94a3b8',fontWeight:700,marginBottom:'3px'}}>
-                    <span>🇩🇪 {fuDeGb} GB</span><span>🇪🇺 {fuGb} GB</span>
-                  </div>
-                  <div style={{height:'8px',background:'#e2e8f0',borderRadius:'99px',overflow:'hidden',position:'relative'}}>
-                    <div style={{width:'100%',height:'100%',background:'#cbd5e1',borderRadius:'99px'}}/>
-                    <div style={{position:'absolute',top:0,left:0,width:`${Math.min(100,Math.round((fuGb/fuDeGb)*100))}%`,height:'100%',background:fuCol,borderRadius:'99px',transition:'width 0.4s ease'}}/>
-                  </div>
-                  <div style={{fontSize:'9px',color:fuCol,fontWeight:800,marginTop:'3px'}}>{Math.min(100,Math.round((fuGb/fuDeGb)*100))}% des DE-Volumens</div>
-                </div>
-              )}
-              {fuGb!==null&&<div style={{fontSize:'8px',color:'#94a3b8',marginTop:'4px'}}>(÷1,10 € × 2) · 2026</div>}
-            </div>
+          <div style={{marginTop:'auto',paddingTop:'12px',borderTop:'1px solid #e2e8f0'}}>
+            <button onClick={()=>setTab('fairuse')} style={{width:'100%',padding:'10px',borderRadius:'10px',border:'1.5px solid #bfdbfe',background:tab==='fairuse'?'#eff6ff':'#fff',cursor:'pointer',display:'flex',alignItems:'center',gap:'8px',justifyContent:'center'}}>
+              <span style={{fontSize:'16px'}}>📊</span>
+              <span style={{fontSize:'12px',fontWeight:800,color:'#1d4ed8'}}>EU-GB Rechner</span>
+            </button>
           </div>
         </div>
 
@@ -5615,87 +5521,117 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
             )}
 
             {tab==='fairuse'&&(()=>{
-              const [preis, setPreis] = useState('');
-              const [provider, setProvider] = useState('auto');
-              const GWSP = 1.10; // EU-Großhandelspreis 2026
-              const preisNetto = parseFloat((preis||'').replace(',','.')) || 0;
-              const euGb = preisNetto > 0 ? Math.round((preisNetto / GWSP) * 2 * 10) / 10 : 0;
-
-              const examples = [
-                { label: 'Telekom', ex: [{p:19.99,label:'MagentaMobil S'},{p:29.99,label:'MagentaMobil M'},{p:39.99,label:'MagentaMobil L'},{p:54.99,label:'MagentaMobil XL'}] },
-                { label: 'o2',      ex: [{p:14.99,label:'o2 Mobile S'},{p:24.99,label:'o2 Mobile M'},{p:39.99,label:'o2 Mobile L'},{p:54.99,label:'o2 Mobile XL'}] },
-                { label: 'Vodafone',ex: [{p:19.99,label:'Smart M'},{p:29.99,label:'Smart L'},{p:39.99,label:'GigaMobil M'},{p:54.99,label:'GigaMobil XL'}] },
-              ];
-
-              const barPct = Math.min(100, Math.round((euGb / 200) * 100));
+              // Offizielle Aufschläge pro GB (netto) laut Fair-Use-Policy + EU-Senkungen
+              const GWSP_MAP = {'2022':2.975,'2023':1.80,'2024':1.55,'2025':1.30,'2026':1.10};
+              const GWSP = GWSP_MAP[fuYear] || 1.10;
+              const brutto = parseFloat((bruttoPreis||'').replace(',','.')) || 0;
+              const netto = brutto > 0 ? brutto / 1.19 : 0;
+              const formelGb = netto > 0 ? Math.round((netto / GWSP) * 2 * 10) / 10 : 0;
+              // Optionaler DE-Deckel: im Ausland nie mehr als das Tarif-Volumen
+              const deGbNum = parseFloat((deGb||'').replace(',','.')) || 0;
+              const capped = formelGb > 0 && deGbNum > 0 && formelGb > deGbNum;
+              const euGb = capped ? deGbNum : formelGb;
               const color = euGb >= 100 ? '#10b981' : euGb >= 50 ? '#f59e0b' : euGb > 0 ? '#3b82f6' : '#e2e8f0';
 
+              const examples = [
+                { label: 'Telekom', ex: [{p:19.99,label:'Magenta S'},{p:29.99,label:'Magenta M'},{p:39.99,label:'Magenta L'},{p:54.99,label:'Magenta XL'}] },
+                { label: 'o2',      ex: [{p:14.99,label:'o2 S'},{p:24.99,label:'o2 M'},{p:39.99,label:'o2 L'},{p:54.99,label:'o2 XL'}] },
+                { label: 'Vodafone',ex: [{p:19.99,label:'Smart M'},{p:29.99,label:'Smart L'},{p:39.99,label:'Giga M'},{p:54.99,label:'Giga XL'}] },
+              ];
+
               return (
-                <div>
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-4">EU Fair-Use Kalkulator 2026</div>
-
-                  {/* Formel-Info */}
-                  <div className="p-3 rounded-xl mb-4" style={{background:'#eff6ff',border:'1.5px solid #bfdbfe'}}>
-                    <div className="text-xs font-black text-blue-800 mb-1">📊 Formel (gültig ab 01.01.2026)</div>
-                    <div className="font-mono text-sm text-blue-900 font-bold">(Monatspreis netto ÷ 1,10 €) × 2 = EU-GB</div>
-                    <div className="text-[10px] text-blue-600 mt-1">Großhandelspreis 2026: 1,10 €/GB · 2025: 1,30 €/GB</div>
-                  </div>
-
-                  {/* Eingabe */}
-                  <div className="flex items-end gap-3 mb-4">
-                    <div className="flex-1">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1.5">Monatspreis (netto in €)</label>
-                      <div className="relative">
-                        <input type="number" min="0" step="0.01" placeholder="z.B. 33.61"
-                          value={preis} onChange={e=>setPreis(e.target.value)}
-                          style={{width:'100%',padding:'10px 36px 10px 14px',border:'2px solid #3b82f6',borderRadius:'10px',fontSize:'18px',fontWeight:800,color:'#1e293b',outline:'none',boxSizing:'border-box'}}
+                <div style={{maxWidth:'580px',margin:'0 auto'}}>
+                  {/* Eingabe + Ergebnis */}
+                  <div style={{display:'flex',gap:'14px',alignItems:'stretch',marginBottom:'14px'}}>
+                    <div style={{flex:1}}>
+                      <label style={{fontSize:'12px',fontWeight:800,color:'#475569',display:'block',marginBottom:'8px'}}>Monatspreis des Tarifs (brutto)</label>
+                      <div style={{position:'relative'}}>
+                        <input type="number" min="0" step="0.01" inputMode="decimal" placeholder="39,99"
+                          value={bruttoPreis} onChange={e=>setBruttoPreis(e.target.value)}
+                          style={{width:'100%',padding:'16px 44px 16px 18px',border:`2px solid ${euGb>0?color:'#3b82f6'}`,borderRadius:'14px',fontSize:'26px',fontWeight:900,color:'#1e293b',outline:'none',boxSizing:'border-box'}}
                         />
-                        <span style={{position:'absolute',right:'12px',top:'50%',transform:'translateY(-50%)',fontSize:'14px',fontWeight:700,color:'#64748b'}}>€</span>
+                        <span style={{position:'absolute',right:'16px',top:'50%',transform:'translateY(-50%)',fontSize:'18px',fontWeight:800,color:'#94a3b8'}}>€</span>
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-1">Brutto ÷ 1,19 = Netto &nbsp;|&nbsp; z.B. 39,99 € brutto → 33,61 € netto</div>
                     </div>
-                    <div style={{textAlign:'center',minWidth:'120px',padding:'12px 16px',borderRadius:'12px',background: euGb>0?color+'15':'#f8fafc',border:`2px solid ${euGb>0?color:'#e2e8f0'}`}}>
-                      <div style={{fontSize:'28px',fontWeight:900,color: euGb>0?color:'#cbd5e1',lineHeight:1}}>{euGb > 0 ? `~${euGb}` : '–'}</div>
-                      <div style={{fontSize:'11px',fontWeight:700,color:'#64748b',marginTop:'2px'}}>GB im EU-Ausland</div>
+                    <div style={{minWidth:'150px',display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',padding:'14px',borderRadius:'14px',background: euGb>0?color+'15':'#f8fafc',border:`2px solid ${euGb>0?color:'#e2e8f0'}`}}>
+                      <div style={{fontSize:'40px',fontWeight:900,color: euGb>0?color:'#cbd5e1',lineHeight:1}}>{euGb > 0 ? `~${euGb}` : '–'}</div>
+                      <div style={{fontSize:'12px',fontWeight:800,color:'#64748b',marginTop:'6px',textAlign:'center'}}>GB im EU-Ausland</div>
                     </div>
                   </div>
 
-                  {/* Balken */}
-                  {euGb > 0 && (
-                    <div className="mb-4">
-                      <div style={{height:'10px',background:'#f1f5f9',borderRadius:'99px',overflow:'hidden'}}>
-                        <div style={{width:`${barPct}%`,height:'100%',background:color,borderRadius:'99px',transition:'width 0.4s ease'}}/>
+                  {/* Aufschlag-Jahr wählen */}
+                  <div style={{marginBottom:'12px'}}>
+                    <div style={{fontSize:'11px',fontWeight:700,color:'#64748b',marginBottom:'6px'}}>Aufschlag pro GB (netto) — je nach Vertragsjahr:</div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'5px'}}>
+                      {[['2022','2,98€'],['2023','1,80€'],['2024','1,55€'],['2025','1,30€'],['2026','1,10€']].map(([yr,rate])=>(
+                        <button key={yr} onClick={()=>setFuYear(yr)}
+                          style={{padding:'7px 2px',borderRadius:'8px',border:`1.5px solid ${fuYear===yr?'#3b82f6':'#e2e8f0'}`,background:fuYear===yr?'#eff6ff':'#f8fafc',cursor:'pointer',textAlign:'center'}}>
+                          <div style={{fontSize:'12px',fontWeight:800,color:fuYear===yr?'#1d4ed8':'#374151'}}>{yr}</div>
+                          <div style={{fontSize:'9px',color:fuYear===yr?'#3b82f6':'#94a3b8',fontWeight:600}}>{rate}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Optionaler DE-Deckel */}
+                  <div style={{marginBottom:'14px',padding:'12px 14px',borderRadius:'12px',background:'#f8fafc',border:'1px solid #e2e8f0'}}>
+                    <label style={{fontSize:'12px',fontWeight:700,color:'#475569',display:'block',marginBottom:'6px'}}>
+                      GB des Tarifs in Deutschland <span style={{fontWeight:600,color:'#94a3b8'}}>(optional)</span>
+                    </label>
+                    <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
+                      <div style={{position:'relative',width:'130px'}}>
+                        <input type="number" min="0" step="1" inputMode="numeric" placeholder="z.B. 50"
+                          value={deGb} onChange={e=>setDeGb(e.target.value)}
+                          style={{width:'100%',padding:'9px 36px 9px 12px',border:'1.5px solid #e2e8f0',borderRadius:'9px',fontSize:'15px',fontWeight:800,color:'#1e293b',outline:'none',boxSizing:'border-box'}}
+                        />
+                        <span style={{position:'absolute',right:'10px',top:'50%',transform:'translateY(-50%)',fontSize:'11px',color:'#94a3b8',fontWeight:700}}>GB</span>
                       </div>
-                      <div className="flex justify-between text-[10px] text-slate-400 font-semibold mt-1">
-                        <span>0 GB</span><span>100 GB</span><span>200 GB</span>
+                      <div style={{flex:1,fontSize:'11px',color:'#64748b',lineHeight:1.4}}>
+                        Begrenzt das Ergebnis: im Ausland gibt's nie mehr GB als der Tarif überhaupt hat.
                       </div>
                     </div>
-                  )}
+                    {capped && (
+                      <div style={{marginTop:'8px',padding:'8px 10px',borderRadius:'8px',background:'#fef3c7',border:'1px solid #fde68a',fontSize:'11px',fontWeight:700,color:'#92400e'}}>
+                        📌 Formel ergäbe {formelGb} GB — aber Tarif hat nur {deGbNum} GB → gedeckelt auf {deGbNum} GB
+                      </div>
+                    )}
+                    {!capped && formelGb > 0 && deGbNum > 0 && (
+                      <div style={{marginTop:'8px',padding:'8px 10px',borderRadius:'8px',background:'#dcfce7',border:'1px solid #bbf7d0',fontSize:'11px',fontWeight:700,color:'#166534'}}>
+                        ✅ {formelGb} GB liegen unter dem Tarif-Volumen — voll nutzbar
+                      </div>
+                    )}
+                  </div>
 
-                  {/* Schnelltabelle */}
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Schnellbeispiele</div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
+                  {/* Schnellauswahl Tarife */}
+                  <div style={{fontSize:'12px',fontWeight:800,color:'#475569',marginBottom:'10px'}}>Oder Tarif antippen:</div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px',marginBottom:'16px'}}>
                     {examples.map(prov=>(
-                      <div key={prov.label} style={{background:'#f8fafc',borderRadius:'10px',border:'1px solid #e2e8f0',overflow:'hidden'}}>
-                        <div style={{padding:'6px 10px',background:'#f1f5f9',fontWeight:800,fontSize:'11px',color:'#374151'}}>{prov.label}</div>
+                      <div key={prov.label} style={{background:'#f8fafc',borderRadius:'12px',border:'1px solid #e2e8f0',overflow:'hidden'}}>
+                        <div style={{padding:'8px 10px',background:'#f1f5f9',fontWeight:800,fontSize:'12px',color:'#374151',textAlign:'center'}}>{prov.label}</div>
                         {prov.ex.map(e=>{
                           const gb = Math.round((e.p/1.19/GWSP)*2*10)/10;
+                          const active = Math.abs(brutto - e.p) < 0.01;
                           return (
-                            <div key={e.p} onClick={()=>setPreis((e.p/1.19).toFixed(2))}
-                              style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 10px',cursor:'pointer',borderBottom:'1px solid #f1f5f9'}}
+                            <div key={e.p} onClick={()=>setBruttoPreis(e.p.toFixed(2))}
+                              style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',cursor:'pointer',borderBottom:'1px solid #f1f5f9',background:active?'#eff6ff':'transparent'}}
                               className="hover:bg-blue-50">
                               <div>
-                                <div style={{fontSize:'10px',fontWeight:700,color:'#374151'}}>{e.label}</div>
-                                <div style={{fontSize:'9px',color:'#94a3b8'}}>{e.p.toFixed(2)} € brutto</div>
+                                <div style={{fontSize:'11px',fontWeight:700,color:'#374151'}}>{e.label}</div>
+                                <div style={{fontSize:'10px',color:'#94a3b8'}}>{e.p.toFixed(2)} €</div>
                               </div>
-                              <div style={{fontSize:'13px',fontWeight:900,color:'#2563eb'}}>~{gb} GB</div>
+                              <div style={{fontSize:'14px',fontWeight:900,color:'#2563eb'}}>~{gb}</div>
                             </div>
                           );
                         })}
                       </div>
                     ))}
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-2">* Beispielpreise (Listenpreise). Tatsächliche Fair-Use-GB hängen vom Vertragspreis ab. Auf Tarife klicken zum Übernehmen.</div>
+
+                  {/* Formel-Info unten */}
+                  <div style={{padding:'10px 14px',borderRadius:'10px',background:'#eff6ff',border:'1px solid #bfdbfe'}}>
+                    <div style={{fontSize:'11px',fontWeight:800,color:'#1e40af',marginBottom:'3px'}}>Offizielle Fair-Use-Formel (o2/Telefónica)</div>
+                    <div style={{fontSize:'11px',color:'#1e40af',fontWeight:600}}>Monatspreis netto ÷ Aufschlag/GB netto × 2 = EU-GB. Danach Aufschlag {GWSP.toFixed(2).replace('.',',')} €/GB netto.</div>
+                  </div>
                 </div>
               );
             })()}
@@ -8985,6 +8921,7 @@ const handleOpenStats = () => { setShowPinLock(true); };
             const [emailText, setEmailText] = useState('');
             const [emailMode, setEmailMode] = useState('keyboard'); 
             const [showEmailKeyboard, setShowEmailKeyboard] = useState(false);
+            const [showProviderKeyboard, setShowProviderKeyboard] = useState(false);
             const [beratungsIdMode, setBeratungsIdMode] = useState('keyboard');
             const [showNumpad, setShowNumpad] = useState(false);
             const [showSmartphoneFinanzierung, setShowSmartphoneFinanzierung] = useState(false);
@@ -9276,17 +9213,8 @@ const [showSkipReasonModal, setShowSkipReasonModal] = useState(false);
             const emailCanvasRef = useRef(null);
             const beratungsIdCanvasRef = useRef(null);
             const providerCanvasRef = useRef(null); 
-            const customProviderInputRef = useRef(null);
-            // v45.7: Wenn "Sonstiges" + Tastatur-Modus aktiv → Input fokussieren (Tastatur öffnen)
-            useEffect(() => {
-                if (isCustomProvider && providerMode === 'keyboard' && customProviderInputRef.current) {
-                    const el = customProviderInputRef.current;
-                    // Mehrfacher Versuch: iOS öffnet die Tastatur nur bei frisch fokussiertem Element
-                    const t1 = setTimeout(() => { try { el.focus(); el.click(); } catch(_){} }, 50);
-                    const t2 = setTimeout(() => { try { el.focus(); } catch(_){} }, 250);
-                    return () => { clearTimeout(t1); clearTimeout(t2); };
-                }
-            }, [isCustomProvider, providerMode]);
+            // v46.6: Anbieter "Sonstiges" nutzt jetzt die eigene virtuelle Tastatur
+            // (showProviderKeyboard) statt nativem Input – iOS-unabhängig, öffnet zuverlässig.
             const notesCanvasRef = useRef(null);
             const sitCanvasRef_Kundenname = useRef(null);
             const sitCanvasRef_Rufnummer = useRef(null);
@@ -14295,7 +14223,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v46.2</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v46.6</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
@@ -14793,7 +14721,7 @@ const handlePDFShare = async () => {
                                 <div style={{padding:'7px 10px',display:'flex',flexDirection:'column',gap:'5px'}}>
                                     <div style={{position:'relative'}}>
                                         {!isCustomProvider
-                                            ?<><select value={providerSelect} onChange={e=>{if(e.target.value==='Sonstiges'){setIsCustomProvider(true);setProviderSelect('Sonstiges');setProviderMode('keyboard');}else{setProviderSelect(e.target.value);setIsCustomProvider(false);setWlanRecommendation('');setSpeedRecommendation('');}}}
+                                            ?<><select value={providerSelect} onChange={e=>{if(e.target.value==='Sonstiges'){setIsCustomProvider(true);setProviderSelect('Sonstiges');setProviderMode('keyboard');setShowProviderKeyboard(true);}else{setProviderSelect(e.target.value);setIsCustomProvider(false);setWlanRecommendation('');setSpeedRecommendation('');}}}
                                                 style={{width:'100%',height:'30px',background:'#f8fafc',border:`1.5px solid ${providerSelect?'#22c55e':'#f87171'}`,borderRadius:'8px',paddingLeft:'8px',paddingRight:'20px',fontSize:'10px',fontWeight:600,color:'#374151',outline:'none',appearance:'none',cursor:'pointer'}}>
                                                 <option value="" disabled hidden>DSL-Anbieter *</option>
                                                 <option selected>Telekom</option><option>1&1</option><option>Vodafone</option><option>O2</option><option value="Sonstiges">Sonstiges</option>
@@ -14805,13 +14733,79 @@ const handlePDFShare = async () => {
                                                     <button onClick={()=>{setIsCustomProvider(false);setWlanRecommendation('');setSpeedRecommendation('');setProviderSelect('');setCustomProvider('');}} style={{width:'22px',height:'22px',borderRadius:'5px',border:'1px solid #e2e8f0',background:'#f8fafc',color:'#94a3b8',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon d={ICONS.List} size={9}/></button>
                                                 </div>
                                                 {providerMode==='keyboard'
-                                                    ?<input ref={customProviderInputRef} type="text" value={customProvider} onChange={e=>setCustomProvider(e.target.value)} onPointerDown={e=>{e.stopPropagation();}} onTouchStart={e=>{e.stopPropagation();}} onClick={e=>{e.stopPropagation(); try{e.currentTarget.focus();}catch(_){}}} placeholder="Anbieter eintippen..." style={{position:'relative',zIndex:25,width:'100%',height:'100%',padding:'0 30px 0 8px',fontSize:'16px',fontWeight:600,color:'#166534',background:'transparent',border:'none',outline:'none',touchAction:'auto',pointerEvents:'auto'}}/>
+                                                    ?<div onClick={()=>setShowProviderKeyboard(true)} style={{display:'flex',alignItems:'center',width:'100%',height:'100%',padding:'0 30px 0 10px',cursor:'pointer',boxSizing:'border-box'}}>
+                                                        <span style={{fontSize:'11px',fontWeight:600,color:customProvider?'#166534':'#9ca3af',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{customProvider||'Anbieter eintippen...'}</span>
+                                                    </div>
                                                     :<><canvas ref={providerCanvasRef} className="absolute inset-0 w-full h-full cursor-crosshair" onPointerDown={e=>startDrawing(e,providerCanvasRef,'provider')} onPointerMove={e=>draw(e,providerCanvasRef,'provider')} onPointerUp={e=>stopDrawing(e,providerCanvasRef)} onPointerLeave={e=>stopDrawing(e,providerCanvasRef)} onPointerCancel={e=>stopDrawing(e,providerCanvasRef)}/><button onClick={()=>clearCanvas(providerCanvasRef,'provider')} style={{position:'absolute',right:'3px',top:'50%',transform:'translateY(-50%)',width:'22px',height:'22px',borderRadius:'5px',border:'1px solid #fecaca',background:'#fef2f2',color:'#ef4444',cursor:'pointer',zIndex:30,display:'flex',alignItems:'center',justifyContent:'center'}}><Icon d={ICONS.Trash} size={9}/></button></>
                                                 }
                                             </div>
                                         }
                                     </div>
                                     {wlanRecommendation&&<div style={{padding:'4px 8px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:'7px',fontSize:'10px',fontWeight:700,color:'#166534'}}>✓ {wlanRecommendation}</div>}
+
+                                    {/* Virtuelle Anbieter-Tastatur (iOS-unabhängig, wie E-Mail) */}
+                                    {showProviderKeyboard && ReactDOM.createPortal(
+                                        <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'flex-end',justifyContent:'center',background:'rgba(0,0,0,0.45)'}} onClick={()=>setShowProviderKeyboard(false)}>
+                                            <div onClick={e=>e.stopPropagation()} style={{background:'#f8fafc',borderRadius:'22px 22px 0 0',width:'100%',maxWidth:'560px',boxShadow:'0 -6px 40px rgba(0,0,0,0.22)',paddingBottom:'env(safe-area-inset-bottom,12px)',overflow:'hidden'}}>
+                                                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 18px 10px',borderBottom:'1.5px solid #e2e8f0',background:'#fff'}}>
+                                                    <span style={{fontSize:'13px',fontWeight:800,color:'#1e293b',letterSpacing:'0.03em'}}>📡 Anbieter eingeben</span>
+                                                    <button onClick={()=>setShowProviderKeyboard(false)} style={{width:'28px',height:'28px',borderRadius:'50%',background:'#e2e8f0',border:'none',cursor:'pointer',fontSize:'14px',color:'#64748b',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:900}}>✕</button>
+                                                </div>
+                                                <div style={{background:'#fff',border:'1.5px solid #bfdbfe',borderRadius:'12px',margin:'12px 16px 6px',padding:'10px 14px',minHeight:'44px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px'}}>
+                                                    <span style={{fontSize:'16px',fontWeight:700,color:customProvider?'#1e293b':'#cbd5e1',flex:1,wordBreak:'break-all'}}>
+                                                        {customProvider||'—'}
+                                                    </span>
+                                                    {customProvider&&<button onClick={()=>setCustomProvider(p=>p.slice(0,-1))} style={{width:'32px',height:'32px',borderRadius:'10px',border:'1.5px solid #fecaca',background:'#fef2f2',color:'#ef4444',cursor:'pointer',fontSize:'16px',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>⌫</button>}
+                                                </div>
+                                                {/* Häufige Anbieter Quick-Buttons */}
+                                                <div style={{display:'flex',gap:'6px',padding:'6px 16px',overflowX:'auto',flexWrap:'nowrap'}}>
+                                                    {['PŸUR','Tele2','M-net','NetCologne','EWE','Deutsche Glasfaser','Congstar','Pyur'].map(d=>(
+                                                        <button key={d} onClick={()=>setCustomProvider(d)} style={{padding:'6px 12px',borderRadius:'999px',border:'1.5px solid #bfdbfe',background:'#eff6ff',color:'#2563eb',fontSize:'12px',fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0,WebkitTapHighlightColor:'transparent'}}>
+                                                            {d}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                {(() => {
+                                                    const rows=[['Q','W','E','R','T','Z','U','I','O','P'],['A','S','D','F','G','H','J','K','L'],['Y','X','C','V','B','N','M']];
+                                                    const btnBase={height:'44px',borderRadius:'10px',fontSize:'17px',fontWeight:700,border:'none',cursor:'pointer',background:'#ffffff',color:'#1e293b',boxShadow:'0 1px 3px rgba(0,0,0,0.1)',WebkitTapHighlightColor:'transparent',display:'flex',alignItems:'center',justifyContent:'center',transition:'all 0.08s'};
+                                                    return (
+                                                        <div style={{padding:'4px 8px 6px',display:'flex',flexDirection:'column',gap:'5px'}}>
+                                                            {rows.map((row,ri)=>(
+                                                                <div key={ri} style={{display:'grid',gridTemplateColumns:`repeat(${row.length},1fr)`,gap:'4px',padding:ri===2?'0 22px':'0'}}>
+                                                                    {row.map(k=>(
+                                                                        <button key={k}
+                                                                            onPointerDown={e=>{e.currentTarget.style.transform='scale(0.9)';e.currentTarget.style.background='#dbeafe';}}
+                                                                            onPointerUp={e=>{e.currentTarget.style.transform='scale(1)';e.currentTarget.style.background='#ffffff';setCustomProvider(p=>p+k);}}
+                                                                            style={btnBase}>{k}</button>
+                                                                    ))}
+                                                                </div>
+                                                            ))}
+                                                            {/* Bottom row: Zahlen + Sonderzeichen */}
+                                                            <div style={{display:'grid',gridTemplateColumns:'repeat(10,1fr)',gap:'4px'}}>
+                                                                {['1','2','3','4','5','6','7','8','9','0'].map(k=>(
+                                                                    <button key={k}
+                                                                        onPointerDown={e=>{e.currentTarget.style.transform='scale(0.9)';e.currentTarget.style.background='#e2e8f0';}}
+                                                                        onPointerUp={e=>{e.currentTarget.style.transform='scale(1)';e.currentTarget.style.background='#f1f5f9';setCustomProvider(p=>p+k);}}
+                                                                        style={{...btnBase,background:'#f1f5f9',fontSize:'15px'}}>{k}</button>
+                                                                ))}
+                                                            </div>
+                                                            {/* Leerzeichen + Bindestrich + Punkt + Löschen */}
+                                                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 4fr 1fr',gap:'4px'}}>
+                                                                <button onPointerDown={e=>{e.currentTarget.style.background='#e2e8f0';}} onPointerUp={e=>{e.currentTarget.style.background='#f1f5f9';setCustomProvider(p=>p+'-');}} style={{...btnBase,background:'#f1f5f9',fontSize:'18px'}}>-</button>
+                                                                <button onPointerDown={e=>{e.currentTarget.style.background='#e2e8f0';}} onPointerUp={e=>{e.currentTarget.style.background='#f1f5f9';setCustomProvider(p=>p+'.');}} style={{...btnBase,background:'#f1f5f9',fontSize:'18px'}}>.</button>
+                                                                <button onPointerDown={e=>{e.currentTarget.style.background='#e2e8f0';}} onPointerUp={e=>{e.currentTarget.style.background='#fff';setCustomProvider(p=>p+' ');}} style={{...btnBase}}>Leerzeichen</button>
+                                                                <button onPointerDown={e=>{e.currentTarget.style.background='#fee2e2';}} onPointerUp={e=>{e.currentTarget.style.background='#fef2f2';setCustomProvider(p=>p.slice(0,-1));}} style={{...btnBase,background:'#fef2f2',color:'#ef4444',fontSize:'18px'}}>⌫</button>
+                                                            </div>
+                                                            <button onClick={()=>setShowProviderKeyboard(false)} style={{width:'100%',height:'48px',borderRadius:'14px',border:'none',fontSize:'15px',fontWeight:800,cursor:'pointer',background:customProvider?'#2563eb':'#cbd5e1',color:'#fff',marginTop:'2px',boxShadow:customProvider?'0 3px 12px rgba(37,99,235,0.35)':'none',transition:'all 0.15s'}}>
+                                                                ✓ Übernehmen
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </div>,
+                                        document.body
+                                    )}
                                     <button onClick={()=>setShowWlanModal(true)}
                                         style={{width:'100%',display:'flex',alignItems:'center',gap:'9px',padding:'7px 10px',borderRadius:'9px',border:`1.5px solid ${wlanRecommendation?'#86efac':'#f1f5f9'}`,background:wlanRecommendation?'#f0fdf4':'#fafafa',cursor:'pointer',transition:'all 0.15s',textAlign:'left'}}
                                         onMouseEnter={e=>{e.currentTarget.style.borderColor='#3b82f6';e.currentTarget.style.background='#eff6ff';}}
