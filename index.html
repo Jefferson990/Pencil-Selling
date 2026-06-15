@@ -9516,17 +9516,47 @@ const fileInputRef = useRef(null);
                         datum,
                         segment: segment || '',
                         provider: isCustomProvider ? customProvider : providerSelect,
-                        // Kompletter Zustand
+                        // ── KOMPLETTER Zustand (v47.1) ──
+                        // Texte & Handschrift
                         textData: { ...textData },
                         drawnStrokes: JSON.parse(JSON.stringify(drawnStrokes)),
+                        emailText,
+                        beratungsId,
+                        // Seiten-Auswahl
+                        view,
+                        customerType,
                         providerSelect,
                         customProvider,
                         isCustomProvider,
                         segment,
-                        view,
+                        // Bilder & Overlays (base64 in canvasImages)
+                        canvasImages: { ...canvasImages },
+                        imageTransform: JSON.parse(JSON.stringify(imageTransform)),
+                        // Angebotsdaten & Kosten
+                        offerData: JSON.parse(JSON.stringify(offerData)),
+                        costState: { ...costState },
+                        packagePrices: JSON.parse(JSON.stringify(packagePrices)),
+                        showSecondYear,
+                        gutschriftBetrag,
+                        showSavingsBlock,
+                        showCostSection,
+                        // Technik & WLAN
+                        checkedTechs: { ...checkedTechs },
+                        techUebernommen: [...techUebernommen],
+                        netBundleMatched,
                         wlanSnapshot,
                         wlanRecommendation,
                         speedRecommendation,
+                        // Follow-Ups & Unterschrift
+                        followUpsByKey: JSON.parse(JSON.stringify(followUpsByKey)),
+                        customerSignature,
+                        // Sprache & Übersetzung
+                        displayLanguage,
+                        translatedText: JSON.parse(JSON.stringify(translatedText)),
+                        staticTranslations: JSON.parse(JSON.stringify(staticTranslations)),
+                        // Layout
+                        sitLayoutMode,
+                        offerLayoutMode,
                     };
                     const ok = await saveOffer(offer);
                     if (ok) {
@@ -9537,25 +9567,58 @@ const fileInputRef = useRef(null);
                     }
                 } catch (e) { triggerToast('⚠️ Fehler: ' + e.message); }
                 setOfferSaving(false);
-            }, [textData, drawnStrokes, providerSelect, customProvider, isCustomProvider, segment, view, wlanSnapshot, wlanRecommendation, speedRecommendation, triggerToast, loadOffersList]);
+            }, [textData, drawnStrokes, emailText, beratungsId, view, customerType, providerSelect, customProvider, isCustomProvider, segment, canvasImages, imageTransform, offerData, costState, packagePrices, showSecondYear, gutschriftBetrag, showSavingsBlock, showCostSection, checkedTechs, techUebernommen, netBundleMatched, wlanSnapshot, wlanRecommendation, speedRecommendation, followUpsByKey, customerSignature, displayLanguage, translatedText, staticTranslations, sitLayoutMode, offerLayoutMode, triggerToast, loadOffersList]);
 
             const handleLoadOffer = useCallback((offer) => {
                 try {
+                    // ── KOMPLETTER Zustand wiederherstellen (v47.1) ──
+                    // Texte & Handschrift
                     if (offer.textData) setTextData(offer.textData);
                     if (offer.drawnStrokes) setDrawnStrokes(offer.drawnStrokes);
+                    if (offer.emailText != null) setEmailText(offer.emailText);
+                    if (offer.beratungsId != null) setBeratungsId(offer.beratungsId);
+                    // Seiten-Auswahl
+                    if (offer.view) setView(offer.view);
+                    if (offer.customerType != null) setCustomerType(offer.customerType);
                     if (offer.providerSelect != null) setProviderSelect(offer.providerSelect);
                     if (offer.customProvider != null) setCustomProvider(offer.customProvider);
                     if (offer.isCustomProvider != null) setIsCustomProvider(offer.isCustomProvider);
                     if (offer.segment != null) setSegment(offer.segment);
-                    if (offer.view) setView(offer.view);
+                    // Bilder & Overlays
+                    if (offer.canvasImages) setCanvasImages(offer.canvasImages);
+                    if (offer.imageTransform) setImageTransform(offer.imageTransform);
+                    // Angebotsdaten & Kosten
+                    if (offer.offerData) setOfferData(offer.offerData);
+                    if (offer.costState) setCostState(offer.costState);
+                    if (offer.packagePrices) setPackagePrices(offer.packagePrices);
+                    if (offer.showSecondYear != null) setShowSecondYear(offer.showSecondYear);
+                    if (offer.gutschriftBetrag != null) setGutschriftBetrag(offer.gutschriftBetrag);
+                    if (offer.showSavingsBlock != null) setShowSavingsBlock(offer.showSavingsBlock);
+                    if (offer.showCostSection != null) setShowCostSection(offer.showCostSection);
+                    // Technik & WLAN
+                    if (offer.checkedTechs) setCheckedTechs(offer.checkedTechs);
+                    if (offer.techUebernommen) setTechUebernommen(offer.techUebernommen);
+                    if (offer.netBundleMatched !== undefined) setNetBundleMatched(offer.netBundleMatched);
                     if (offer.wlanSnapshot !== undefined) setWlanSnapshot(offer.wlanSnapshot);
                     if (offer.wlanRecommendation !== undefined) setWlanRecommendation(offer.wlanRecommendation);
                     if (offer.speedRecommendation !== undefined) setSpeedRecommendation(offer.speedRecommendation);
+                    // Follow-Ups & Unterschrift
+                    if (offer.followUpsByKey) setFollowUpsByKey(offer.followUpsByKey);
+                    if (offer.customerSignature !== undefined) setCustomerSignature(offer.customerSignature);
+                    // Sprache & Übersetzung
+                    if (offer.displayLanguage) setDisplayLanguage(offer.displayLanguage);
+                    if (offer.translatedText) setTranslatedText(offer.translatedText);
+                    if (offer.staticTranslations) setStaticTranslations(offer.staticTranslations);
+                    // Layout
+                    if (offer.sitLayoutMode) setSitLayoutMode(offer.sitLayoutMode);
+                    if (offer.offerLayoutMode) setOfferLayoutMode(offer.offerLayoutMode);
+
                     setShowSavedOffers(false);
                     triggerToast('✅ Angebot geladen: ' + (offer.label || 'Unbenannt'));
-                    // Striche neu zeichnen
+                    // Striche + Bilder neu zeichnen
                     setTimeout(() => setRedrawCounter(r => r + 1), 200);
-                } catch (e) { triggerToast('⚠️ Laden fehlgeschlagen'); }
+                    setTimeout(() => setRedrawCounter(r => r + 1), 600);
+                } catch (e) { triggerToast('⚠️ Laden fehlgeschlagen: ' + e.message); }
             }, [triggerToast]);
 
             const handleDeleteOffer = useCallback(async (id) => {
@@ -14368,8 +14431,11 @@ const handlePDFShare = async () => {
                                                 <div style={{fontSize:'11px',color:'#64748b',marginTop:'2px'}}>
                                                     {offer.datum || '–'} · {offer.provider || '–'} · {offer.segment || '–'}
                                                 </div>
-                                                <div style={{fontSize:'10px',color:'#94a3b8',marginTop:'1px'}}>
-                                                    {new Date(offer.ts).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}
+                                                <div style={{fontSize:'10px',color:'#94a3b8',marginTop:'2px',display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                                                    <span>{new Date(offer.ts).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+                                                    {offer.customerSignature && <span style={{color:'#10b981'}}>✍️ Signiert</span>}
+                                                    {offer.canvasImages && Object.values(offer.canvasImages).some(v=>v) && <span style={{color:'#8b5cf6'}}>🖼 Bilder</span>}
+                                                    {offer.displayLanguage && offer.displayLanguage !== 'de' && <span style={{color:'#f59e0b'}}>🌐 {offer.displayLanguage.toUpperCase()}</span>}
                                                 </div>
                                             </div>
                                             <button onClick={()=>handleLoadOffer(offer)} style={{padding:'8px 14px',borderRadius:'9px',border:'none',background:'#2563eb',color:'#fff',fontWeight:800,fontSize:'12px',cursor:'pointer',flexShrink:0}}>Laden</button>
@@ -14397,7 +14463,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v47.0</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v47.1</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
