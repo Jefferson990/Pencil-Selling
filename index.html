@@ -4968,7 +4968,7 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
           ];
           const[simDl,setSimDl]=useState(100);
           const[simUl,setSimUl]=useState(40);
-          const[tiers,setTiers]=useState([{dl:16,ul:2.4,on:true},{dl:50,ul:10,on:true},{dl:100,ul:40,on:true},{dl:250,ul:40,on:true},{dl:1000,ul:100,on:true}]);
+          const[tiers,setTiers]=useState([{dl:16,ul:2.4,on:true},{dl:50,ul:10,on:true},{dl:100,ul:40,on:true},{dl:250,ul:50,on:true},{dl:500,ul:100,on:true},{dl:1000,ul:200,on:true}]);
           const[customDl,setCustomDl]=useState('');
           const[activities,setActivities]=useState([
             {k:'surf',emoji:'🌐',label:'Surfen',dl:1.5,ul:0.2,n:2},
@@ -4981,7 +4981,11 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
           const{rec,needDl,needUl,gaugePct}=useMemo(()=>{
             let nDl=0,nUl=0;
             activities.forEach(a=>{nDl+=a.n*a.dl;nUl+=a.n*a.ul;});
-            nDl=Math.ceil(nDl*1.2);nUl=Math.ceil(nUl*1.2);
+            // +20% Lastpuffer, dann WLAN-Overhead: real kommen über WLAN nur ~60% der
+            // gebuchten Leitung am Endgerät an → Bedarf durch 0,6 teilen, damit der
+            // empfohlene Tarif den tatsächlichen Bedarf am Gerät auch wirklich liefert.
+            const WLAN_EFF=0.6;
+            nDl=Math.ceil(nDl*1.2/WLAN_EFF);nUl=Math.ceil(nUl*1.2/WLAN_EFF);
             const avail=tiers.filter(t=>t.on).sort((a,b)=>a.dl-b.dl);
             let r=avail.find(t=>t.dl>=nDl&&t.ul>=Math.max(nUl,2));
             if(!r&&avail.length>0)r=avail[avail.length-1];
@@ -5031,7 +5035,7 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                       <button key={opt.dl} onClick={()=>{
                         setMaxBroadband(opt.dl);
                         // Tiers automatisch generieren: alle Standard-Stufen bis max
-                        const allT=[{dl:16,ul:2.4},{dl:50,ul:10},{dl:100,ul:40},{dl:250,ul:40},{dl:500,ul:50},{dl:1000,ul:100}];
+                        const allT=[{dl:16,ul:2.4},{dl:50,ul:10},{dl:100,ul:40},{dl:250,ul:50},{dl:500,ul:100},{dl:1000,ul:200}];
                         setTiers(allT.filter(t=>t.dl<=opt.dl).map(t=>({...t,on:true})));
                       }} style={{padding:'14px 12px',borderRadius:'14px',border:`1.5px solid ${BORDER}`,background:PANEL,cursor:'pointer',textAlign:'center',transition:'all 0.15s'}}>
                         <div style={{fontSize:'20px',fontWeight:'900',color:TEXT,lineHeight:1}}>{opt.label}</div>
@@ -5041,9 +5045,9 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:'8px',marginTop:'14px'}}>
                     <input type="number" placeholder="z.B. 150" min="1" max="10000" style={{flex:1,padding:'12px 14px',borderRadius:'12px',border:`1.5px solid ${BORDER}`,background:PANEL,fontSize:'16px',fontWeight:'700',color:TEXT,outline:'none'}}
-                      onKeyDown={(e)=>{if(e.key==='Enter'){const v=parseInt(e.target.value);if(v>0){setMaxBroadband(v);const allT=[{dl:16,ul:2.4},{dl:50,ul:10},{dl:100,ul:40},{dl:250,ul:40},{dl:500,ul:50},{dl:1000,ul:100}];const filtered=allT.filter(t=>t.dl<=v);if(!filtered.find(t=>t.dl===v))filtered.push({dl:v,ul:Math.round(v/5)});setTiers(filtered.sort((a,b)=>a.dl-b.dl).map(t=>({...t,on:true})));}}}}
+                      onKeyDown={(e)=>{if(e.key==='Enter'){const v=parseInt(e.target.value);if(v>0){setMaxBroadband(v);const allT=[{dl:16,ul:2.4},{dl:50,ul:10},{dl:100,ul:40},{dl:250,ul:50},{dl:500,ul:100},{dl:1000,ul:200}];const filtered=allT.filter(t=>t.dl<=v);if(!filtered.find(t=>t.dl===v))filtered.push({dl:v,ul:Math.round(v/5)});setTiers(filtered.sort((a,b)=>a.dl-b.dl).map(t=>({...t,on:true})));}}}}
                     />
-                    <button onClick={(e)=>{const inp=e.target.closest('div').querySelector('input');const v=parseInt(inp?.value);if(v>0){setMaxBroadband(v);const allT=[{dl:16,ul:2.4},{dl:50,ul:10},{dl:100,ul:40},{dl:250,ul:40},{dl:500,ul:50},{dl:1000,ul:100}];const filtered=allT.filter(t=>t.dl<=v);if(!filtered.find(t=>t.dl===v))filtered.push({dl:v,ul:Math.round(v/5)});setTiers(filtered.sort((a,b)=>a.dl-b.dl).map(t=>({...t,on:true})));}}} style={{padding:'12px 20px',borderRadius:'12px',border:'none',background:ACCENT,color:'#fff',fontWeight:'800',fontSize:'14px',cursor:'pointer',whiteSpace:'nowrap'}}>Mbit/s →</button>
+                    <button onClick={(e)=>{const inp=e.target.closest('div').querySelector('input');const v=parseInt(inp?.value);if(v>0){setMaxBroadband(v);const allT=[{dl:16,ul:2.4},{dl:50,ul:10},{dl:100,ul:40},{dl:250,ul:50},{dl:500,ul:100},{dl:1000,ul:200}];const filtered=allT.filter(t=>t.dl<=v);if(!filtered.find(t=>t.dl===v))filtered.push({dl:v,ul:Math.round(v/5)});setTiers(filtered.sort((a,b)=>a.dl-b.dl).map(t=>({...t,on:true})));}}} style={{padding:'12px 20px',borderRadius:'12px',border:'none',background:ACCENT,color:'#fff',fontWeight:'800',fontSize:'14px',cursor:'pointer',whiteSpace:'nowrap'}}>Mbit/s →</button>
                   </div>
                   <p style={{margin:'8px 0 0',fontSize:'11px',color:TEXT2}}>Eigenen Wert eingeben, falls nicht in der Liste (z.B. 150, 175, 300…)</p>
                 </div>
@@ -14223,7 +14227,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v46.6</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v46.8</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
