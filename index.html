@@ -9497,42 +9497,42 @@ const fileInputRef = useRef(null);
             const [showSavedOffers, setShowSavedOffers] = useState(false);
             const [savedOffersList, setSavedOffersList] = useState([]);
             const [offerSaving, setOfferSaving] = useState(false);
+            const [showSaveDialog, setShowSaveDialog] = useState(false);
+            const [saveDialogName, setSaveDialogName] = useState('');
 
             const loadOffersList = useCallback(async () => {
                 const list = await listOffers();
                 setSavedOffersList(list || []);
             }, []);
 
-            const handleSaveOffer = useCallback(async () => {
+            const handleSaveOffer = useCallback(async (customName) => {
                 setOfferSaving(true);
                 try {
                     const kundenName = textData?.Kundenname || textData?.CustomerName || '';
                     const datum = textData?.DateValue || new Date().toLocaleDateString('de-DE');
                     const id = 'offer_' + Date.now();
+                    // Label-Priorität: 1. Custom-Name 2. Kundenname 3. "Unbenannt"
+                    const label = (customName && customName.trim()) ? customName.trim() : (kundenName || 'Unbenannt');
                     const offer = {
                         id,
                         ts: Date.now(),
-                        label: kundenName || 'Unbenannt',
+                        label,
                         datum,
                         segment: segment || '',
                         provider: isCustomProvider ? customProvider : providerSelect,
                         // ── KOMPLETTER Zustand (v47.1) ──
-                        // Texte & Handschrift
                         textData: { ...textData },
                         drawnStrokes: JSON.parse(JSON.stringify(drawnStrokes)),
                         emailText,
                         beratungsId,
-                        // Seiten-Auswahl
                         view,
                         customerType,
                         providerSelect,
                         customProvider,
                         isCustomProvider,
                         segment,
-                        // Bilder & Overlays (base64 in canvasImages)
                         canvasImages: { ...canvasImages },
                         imageTransform: JSON.parse(JSON.stringify(imageTransform)),
-                        // Angebotsdaten & Kosten
                         offerData: JSON.parse(JSON.stringify(offerData)),
                         costState: { ...costState },
                         packagePrices: JSON.parse(JSON.stringify(packagePrices)),
@@ -9540,54 +9540,48 @@ const fileInputRef = useRef(null);
                         gutschriftBetrag,
                         showSavingsBlock,
                         showCostSection,
-                        // Technik & WLAN
                         checkedTechs: { ...checkedTechs },
                         techUebernommen: [...techUebernommen],
                         netBundleMatched,
                         wlanSnapshot,
                         wlanRecommendation,
                         speedRecommendation,
-                        // Follow-Ups & Unterschrift
                         followUpsByKey: JSON.parse(JSON.stringify(followUpsByKey)),
                         customerSignature,
-                        // Sprache & Übersetzung
                         displayLanguage,
                         translatedText: JSON.parse(JSON.stringify(translatedText)),
                         staticTranslations: JSON.parse(JSON.stringify(staticTranslations)),
-                        // Layout
                         sitLayoutMode,
                         offerLayoutMode,
                     };
                     const ok = await saveOffer(offer);
                     if (ok) {
-                        triggerToast('💾 Angebot gespeichert' + (kundenName ? ': ' + kundenName : ''));
+                        triggerToast('💾 Gespeichert: ' + label);
                         await loadOffersList();
                     } else {
                         triggerToast('⚠️ Speichern fehlgeschlagen');
                     }
                 } catch (e) { triggerToast('⚠️ Fehler: ' + e.message); }
                 setOfferSaving(false);
+                setShowSaveDialog(false);
+                setSaveDialogName('');
             }, [textData, drawnStrokes, emailText, beratungsId, view, customerType, providerSelect, customProvider, isCustomProvider, segment, canvasImages, imageTransform, offerData, costState, packagePrices, showSecondYear, gutschriftBetrag, showSavingsBlock, showCostSection, checkedTechs, techUebernommen, netBundleMatched, wlanSnapshot, wlanRecommendation, speedRecommendation, followUpsByKey, customerSignature, displayLanguage, translatedText, staticTranslations, sitLayoutMode, offerLayoutMode, triggerToast, loadOffersList]);
 
             const handleLoadOffer = useCallback((offer) => {
                 try {
-                    // ── KOMPLETTER Zustand wiederherstellen (v47.1) ──
-                    // Texte & Handschrift
+                    // ── KOMPLETTER Zustand wiederherstellen (v47.2) ──
                     if (offer.textData) setTextData(offer.textData);
                     if (offer.drawnStrokes) setDrawnStrokes(offer.drawnStrokes);
                     if (offer.emailText != null) setEmailText(offer.emailText);
                     if (offer.beratungsId != null) setBeratungsId(offer.beratungsId);
-                    // Seiten-Auswahl
                     if (offer.view) setView(offer.view);
                     if (offer.customerType != null) setCustomerType(offer.customerType);
                     if (offer.providerSelect != null) setProviderSelect(offer.providerSelect);
                     if (offer.customProvider != null) setCustomProvider(offer.customProvider);
                     if (offer.isCustomProvider != null) setIsCustomProvider(offer.isCustomProvider);
                     if (offer.segment != null) setSegment(offer.segment);
-                    // Bilder & Overlays
                     if (offer.canvasImages) setCanvasImages(offer.canvasImages);
                     if (offer.imageTransform) setImageTransform(offer.imageTransform);
-                    // Angebotsdaten & Kosten
                     if (offer.offerData) setOfferData(offer.offerData);
                     if (offer.costState) setCostState(offer.costState);
                     if (offer.packagePrices) setPackagePrices(offer.packagePrices);
@@ -9595,29 +9589,35 @@ const fileInputRef = useRef(null);
                     if (offer.gutschriftBetrag != null) setGutschriftBetrag(offer.gutschriftBetrag);
                     if (offer.showSavingsBlock != null) setShowSavingsBlock(offer.showSavingsBlock);
                     if (offer.showCostSection != null) setShowCostSection(offer.showCostSection);
-                    // Technik & WLAN
                     if (offer.checkedTechs) setCheckedTechs(offer.checkedTechs);
                     if (offer.techUebernommen) setTechUebernommen(offer.techUebernommen);
                     if (offer.netBundleMatched !== undefined) setNetBundleMatched(offer.netBundleMatched);
                     if (offer.wlanSnapshot !== undefined) setWlanSnapshot(offer.wlanSnapshot);
                     if (offer.wlanRecommendation !== undefined) setWlanRecommendation(offer.wlanRecommendation);
                     if (offer.speedRecommendation !== undefined) setSpeedRecommendation(offer.speedRecommendation);
-                    // Follow-Ups & Unterschrift
                     if (offer.followUpsByKey) setFollowUpsByKey(offer.followUpsByKey);
                     if (offer.customerSignature !== undefined) setCustomerSignature(offer.customerSignature);
-                    // Sprache & Übersetzung
                     if (offer.displayLanguage) setDisplayLanguage(offer.displayLanguage);
                     if (offer.translatedText) setTranslatedText(offer.translatedText);
                     if (offer.staticTranslations) setStaticTranslations(offer.staticTranslations);
-                    // Layout
                     if (offer.sitLayoutMode) setSitLayoutMode(offer.sitLayoutMode);
                     if (offer.offerLayoutMode) setOfferLayoutMode(offer.offerLayoutMode);
 
                     setShowSavedOffers(false);
                     triggerToast('✅ Angebot geladen: ' + (offer.label || 'Unbenannt'));
-                    // Striche + Bilder neu zeichnen
-                    setTimeout(() => setRedrawCounter(r => r + 1), 200);
-                    setTimeout(() => setRedrawCounter(r => r + 1), 600);
+
+                    // v47.2: Robustere Redraw-Sequenz – Canvas braucht Zeit zum Mounten
+                    // 1. React rendert die neue View (300ms)
+                    // 2. Canvases neu skalieren (ps-canvas-recalc)
+                    // 3. Redraw mit korrekten Dimensionen (600ms + 1200ms)
+                    setTimeout(() => {
+                        try { window.dispatchEvent(new Event('ps-canvas-recalc')); } catch(_) {}
+                    }, 300);
+                    setTimeout(() => { setRedrawCounter(r => r + 1); }, 600);
+                    setTimeout(() => {
+                        try { window.dispatchEvent(new Event('ps-canvas-recalc')); } catch(_) {}
+                        setRedrawCounter(r => r + 1);
+                    }, 1200);
                 } catch (e) { triggerToast('⚠️ Laden fehlgeschlagen: ' + e.message); }
             }, [triggerToast]);
 
@@ -10488,21 +10488,47 @@ const handleFinishOfferClick = () => {
             const handleCategoryClick = (cat) => { setActiveCategory(cat); setQuestionIndex(0); };
             const handleNextQuestion = () => setQuestionIndex((prev) => (prev + 1) % (questionsData[activeCategory || 'default'].length));
             const getCurrentQuestion = () => questionsData[activeCategory || 'default'][questionIndex];
+            // v47.3: Debounce-Timer für Auto-Übersetzung beim Tippen
+            const autoTranslateTimerRef = useRef(null);
+
             const handleTextChange = (key, val) => {
+                // Immer den deutschen Quelltext aktualisieren
                 setTextData(prev => ({ ...prev, [key]: val }));
-                // v45.3: Deutscher Text geändert → gecachte Übersetzungen dieses Felds verwerfen
-                if (displayLanguage === 'de') {
-                    setTranslatedText(prev => {
-                        let changed = false;
-                        const next = {};
-                        for (const lang of Object.keys(prev || {})) {
-                            if (prev[lang] && Object.prototype.hasOwnProperty.call(prev[lang], key)) {
-                                const { [key]: _drop, ...rest } = prev[lang];
-                                next[lang] = rest; changed = true;
-                            } else { next[lang] = prev[lang]; }
-                        }
-                        return changed ? next : prev;
-                    });
+
+                // v47.3: Cache für ALLE Sprachen invalidieren (nicht nur wenn displayLanguage === 'de')
+                // Sonst lässt sich ein geänderter Text nie neu übersetzen.
+                setTranslatedText(prev => {
+                    let changed = false;
+                    const next = {};
+                    for (const lang of Object.keys(prev || {})) {
+                        if (prev[lang] && Object.prototype.hasOwnProperty.call(prev[lang], key)) {
+                            const { [key]: _drop, ...rest } = prev[lang];
+                            next[lang] = rest; changed = true;
+                        } else { next[lang] = prev[lang]; }
+                    }
+                    return changed ? next : prev;
+                });
+
+                // v47.3: Wenn gerade NICHT Deutsch aktiv → Auto-Übersetzen nach 1s Pause.
+                // Der User tippt Deutsch, sieht erstmal den deutschen Text, und nach 1s
+                // wird dieser eine Text automatisch via MyMemory übersetzt → nahtlos.
+                if (displayLanguage !== 'de') {
+                    clearTimeout(autoTranslateTimerRef.current);
+                    autoTranslateTimerRef.current = setTimeout(async () => {
+                        const EXCLUDE_KEYS = ['AgentName', 'DateValue', 'OfferValidUntil'];
+                        if (EXCLUDE_KEYS.includes(key)) return;
+                        if (key.toLowerCase().includes('kundenname') || key.toLowerCase().includes('rufnummer')) return;
+                        if (!val || val.trim().length < 2 || !/[A-Za-zÄÖÜäöüß]/.test(val) || /^[\d.,:\s€%+-]+$/.test(val.trim())) return;
+                        try {
+                            const res = await fetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(val.slice(0, 480)) + '&langpair=de|' + displayLanguage);
+                            if (!res.ok) return;
+                            const j = await res.json();
+                            const t = j?.responseData?.translatedText;
+                            if (t && String(j?.responseStatus) === '200' && t.trim() && !/MYMEMORY WARNING/i.test(t)) {
+                                setTranslatedText(prev => ({ ...prev, [displayLanguage]: { ...(prev[displayLanguage] || {}), [key]: t } }));
+                            }
+                        } catch(_) {}
+                    }, 1000);
                 }
                 // Merken: dieses Feld wurde digital (Tastatur) genutzt -> im Druck/Share anzeigen
                 try {
@@ -10581,9 +10607,9 @@ const handleFinishOfferClick = () => {
                         }
                     }
                 } catch(e) {}
-                if (displayLanguage !== 'de') {
-                    setTranslatedText(prev => ({ ...prev, [displayLanguage]: { ...prev[displayLanguage], [key]: val } }));
-                }
+                // v47.3: NICHT mehr den deutschen Rohtext als "Übersetzung" speichern!
+                // Das hat vorher den Cache mit dem unübersetzten Text gefüllt → Re-Übersetzung ging nie.
+                // Die Auto-Übersetzung läuft jetzt oben per Debounce-Timer.
             };
             const handleCostChange = (key, e) => { const val = e.target.value; setCostState(prev => ({ ...prev, [key]: val })); };
             const handleUpdateQuestions = (cat, newQs) => { setQuestionsData(prev => ({...prev, [cat]: newQs})); };
@@ -14405,6 +14431,34 @@ const handlePDFShare = async () => {
                     <PinLockModal isOpen={showPinLock} onClose={()=>setShowPinLock(false)} onSuccess={()=>{ setShowPinLock(false); setShowStats(true); }} />
                     <AdminSafeBoundary onClose={()=>setShowStats(false)}><StatsModal isOpen={showStats} onClose={()=>setShowStats(false)} onOpenAdmin={()=>{ if (LINK_EMPLOYEE === 'Diego da Silva') { setShowStats(false); setShowAdmin(true); } }} /></AdminSafeBoundary>
 
+                    {/* 💾 Speichern-Dialog (optionaler Dateiname) */}
+                    {showSaveDialog && ReactDOM.createPortal(
+                        <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.45)'}} onClick={()=>{setShowSaveDialog(false);setSaveDialogName('');}}>
+                            <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:'20px',width:'90%',maxWidth:'400px',boxShadow:'0 20px 60px rgba(0,0,0,0.25)',overflow:'hidden'}}>
+                                <div style={{padding:'20px 22px 14px'}}>
+                                    <div style={{fontSize:'18px',fontWeight:900,color:'#1e293b',marginBottom:'4px'}}>💾 Angebot speichern</div>
+                                    <div style={{fontSize:'12px',color:'#94a3b8'}}>Optional: Gib einen Namen ein, um es leichter wiederzufinden.</div>
+                                </div>
+                                <div style={{padding:'0 22px 18px'}}>
+                                    <input type="text" value={saveDialogName} onChange={e=>setSaveDialogName(e.target.value)}
+                                        placeholder="z.B. Müller – o2 XL + FritzBox"
+                                        onPointerDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()}
+                                        style={{width:'100%',padding:'14px 16px',border:'2px solid #bfdbfe',borderRadius:'12px',fontSize:'16px',fontWeight:700,color:'#1e293b',outline:'none',boxSizing:'border-box'}}
+                                        autoFocus
+                                    />
+                                    <div style={{fontSize:'11px',color:'#94a3b8',marginTop:'6px'}}>Leer lassen → wird als "{textData?.Kundenname || 'Unbenannt'}" gespeichert</div>
+                                </div>
+                                <div style={{display:'flex',gap:'10px',padding:'0 22px 20px'}}>
+                                    <button onClick={()=>{setShowSaveDialog(false);setSaveDialogName('');}} style={{flex:1,padding:'12px',borderRadius:'12px',border:'1.5px solid #e2e8f0',background:'#f8fafc',color:'#64748b',fontWeight:700,fontSize:'14px',cursor:'pointer'}}>Abbrechen</button>
+                                    <button onClick={()=>handleSaveOffer(saveDialogName)} disabled={offerSaving} style={{flex:2,padding:'12px',borderRadius:'12px',border:'none',background:'#2563eb',color:'#fff',fontWeight:800,fontSize:'14px',cursor:'pointer',opacity:offerSaving?0.5:1,boxShadow:'0 3px 12px rgba(37,99,235,0.35)'}}>
+                                        {offerSaving ? 'Speichert...' : '💾 Speichern'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>,
+                        document.body
+                    )}
+
                     {/* 💾 Gespeicherte Angebote Modal */}
                     {showSavedOffers && ReactDOM.createPortal(
                         <div style={{position:'fixed',inset:0,zIndex:9998,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)'}} onClick={()=>setShowSavedOffers(false)}>
@@ -14463,7 +14517,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v47.1</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v47.3</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
@@ -15931,7 +15985,7 @@ const handlePDFShare = async () => {
 
                     <div className="h-14 bg-[#f0f6ff] border-t border-slate-200 flex items-center px-4 shrink-0 justify-between shadow-sm footer-bar" style={{position:"fixed",bottom:0,left:0,right:0,width:"100%",zIndex:9000,boxSizing:"border-box"}}>
                         {view === 'situation' ? (<><div className="flex items-center gap-3"><div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm"><button onClick={() => setInputMode('pen')} className={`p-2 rounded-md transition-colors ${inputMode === 'pen' ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`} title="Stift-Modus (Stylus Only)"><Icon d={ICONS.Pen} size={16} /></button><button onClick={() => setInputMode('keyboard')} className={`p-2 rounded-md transition-colors ${inputMode === 'keyboard' ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`} title="Tastatur-Modus"><Icon d={ICONS.Keyboard} size={16} /></button></div>{inputMode === 'pen' && !scrollMode && (<div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm animate-in items-center relative z-50">{renderPenToolButtons()}{(tool === 'pen' || tool === 'fountain' || tool === 'ballpen' || tool === 'highlighter') && (<div className="opacity-slider-group flex items-center gap-2 bg-slate-50 rounded border border-slate-200 p-1.5 ml-2"><Icon d={ICONS.Sun} size={16} className="text-slate-400"/><input type="range" min="10" max="100" value={Math.round(opacity * 100)} onChange={(e) => setOpacity(parseInt(e.target.value) / 100)} className="w-20 h-1 appearance-none bg-blue-200 rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-lg" title={`Deckkraft: ${Math.round(opacity * 100)}%`}/></div>)}<div className="toolbar-divider w-px h-6 bg-slate-200 mx-1"></div><div className="color-picker-group relative"><button onClick={() => setShowColorPicker(!showColorPicker)} className="w-8 h-8 rounded-full border shadow-sm flex items-center justify-center ring-offset-2 focus:ring-2" style={{ backgroundColor: color }}><Icon d={ICONS.Palette} size={12} className="text-white mix-blend-difference" /></button>{showColorPicker && (<div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-white p-3 rounded-xl shadow-2xl border border-slate-200 grid grid-cols-4 gap-2 w-[180px] z-[100]"><div className="col-span-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center mb-1">Farbe wählen</div>{COLORS.map(c => <button key={c.id} onClick={() => { setColor(c.value); setShowColorPicker(false); if(c.id==='white') triggerToast('Weiß: auf hellem Canvas kaum sichtbar!'); }} className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${color === c.value ? 'border-slate-400 shadow-inner scale-110' : 'border-transparent'}`} style={{ backgroundColor: c.value }} title={c.label} />)}</div>)}</div></div>)}{inputMode === 'keyboard' && (<div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm animate-in items-center relative z-50"><div className="flex bg-slate-50 rounded border border-slate-200 p-0.5 gap-0.5"><button onClick={() => setTextSize('small')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'small' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'11px'}}>S</button><button onClick={() => setTextSize('medium')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'medium' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'14px'}}>M</button><button onClick={() => setTextSize('large')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'large' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'18px'}}>L</button></div><div className="w-px h-6 bg-slate-200 mx-1"></div><div className="flex gap-1"><button onClick={() => setTextStyle(p => ({...p, bold: !p.bold}))} className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${textStyle.bold ? 'bg-blue-100 text-blue-600 ring-1 ring-blue-200' : 'text-slate-500 hover:bg-slate-100'}`} title="Fett" style={{fontSize:'16px',fontWeight:900}}>F</button><button onClick={() => setTextStyle(p => ({...p, italic: !p.italic}))} className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${textStyle.italic ? 'bg-blue-100 text-blue-600 ring-1 ring-blue-200' : 'text-slate-500 hover:bg-slate-100'}`} title="Kursiv" style={{fontStyle:'italic',fontFamily:'Georgia,serif',fontSize:'15px',fontWeight:600}}>K</button></div></div>)}</div><div className="flex items-center gap-2">
-                            <button onClick={handleSaveOffer} disabled={offerSaving} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-emerald-500 hover:bg-emerald-50 transition-colors" title="💾 Angebot speichern" style={{opacity:offerSaving?0.5:1}}><Icon d={ICONS.Save||ICONS.CheckCircle} size={18}/></button>
+                            <button onClick={()=>{setSaveDialogName(textData?.Kundenname||"");setShowSaveDialog(true);}} disabled={offerSaving} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-emerald-500 hover:bg-emerald-50 transition-colors" title="💾 Angebot speichern" style={{opacity:offerSaving?0.5:1}}><Icon d={ICONS.Save||ICONS.CheckCircle} size={18}/></button>
                             <button onClick={()=>{loadOffersList();setShowSavedOffers(true);}} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-blue-500 hover:bg-blue-50 transition-colors" title="📋 Gespeicherte Angebote"><Icon d={ICONS.List} size={18}/></button>
                             <button onClick={() => { if (LINK_EMPLOYEE === 'Diego da Silva') { handleSkipToOffer('Übersprungen (Admin)'); } else { setShowSkipReasonModal(true); } }} className="px-4 py-2 text-slate-500 font-bold text-xs hover:bg-slate-100 rounded-lg transition-colors">Überspringen</button>
                             <button onClick={() => { if(isFormValid){ setView('offer'); setViewOfferCounter(c => c + 1); } }} className={`px-6 py-2 rounded-lg font-bold shadow-lg text-sm flex items-center gap-2 transition-all ${isFormValid ? 'bg-blue-600 text-white hover:bg-blue-700 cursor-pointer' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`} title={isFormValid ? "Weiter zum Angebot" : "Bitte Pflichtfelder ausfüllen (Kundentyp, Segment, Anbieter)"}>Zum Angebot <Icon d={ICONS.ArrowRight} size={18} /></button>
@@ -15953,7 +16007,7 @@ const handlePDFShare = async () => {
                                     </div>
                                     );
                                 })()}
-                                <button onClick={handleSaveOffer} disabled={offerSaving} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-emerald-500 hover:bg-emerald-50 transition-colors mr-2" title="💾 Angebot speichern" style={{opacity:offerSaving?0.5:1}}><Icon d={ICONS.Save||ICONS.CheckCircle} size={18}/></button>
+                                <button onClick={()=>{setSaveDialogName(textData?.Kundenname||"");setShowSaveDialog(true);}} disabled={offerSaving} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-emerald-500 hover:bg-emerald-50 transition-colors mr-2" title="💾 Angebot speichern" style={{opacity:offerSaving?0.5:1}}><Icon d={ICONS.Save||ICONS.CheckCircle} size={18}/></button>
                                 <button onClick={()=>{loadOffersList();setShowSavedOffers(true);}} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-blue-500 hover:bg-blue-50 transition-colors mr-2" title="📋 Gespeicherte Angebote"><Icon d={ICONS.List} size={18}/></button>
                                 <button onClick={() => setView('situation')} className="px-6 py-2 text-slate-500 font-bold text-xs hover:bg-slate-100 rounded-lg transition-colors mr-2 flex items-center gap-1"><Icon d={ICONS.ArrowLeft} size={14}/> Zurück</button><button onClick={handleFinishOfferClick} disabled={!isReadyToFinish}  className={`px-6 py-2 rounded-lg font-bold shadow-lg text-sm flex items-center gap-2 transition-all ${
                     (!isReadyToFinish)
