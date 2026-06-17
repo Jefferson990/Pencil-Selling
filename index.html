@@ -9606,18 +9606,19 @@ const fileInputRef = useRef(null);
                     setShowSavedOffers(false);
                     triggerToast('✅ Angebot geladen: ' + (offer.label || 'Unbenannt'));
 
-                    // v47.2: Robustere Redraw-Sequenz – Canvas braucht Zeit zum Mounten
-                    // 1. React rendert die neue View (300ms)
-                    // 2. Canvases neu skalieren (ps-canvas-recalc)
-                    // 3. Redraw mit korrekten Dimensionen (600ms + 1200ms)
-                    setTimeout(() => {
+                    // v51: Flacker-Fix beim Wiederherstellen.
+                    // Vorher: 300ms recalc + 600ms redraw + 1200ms recalc+redraw.
+                    // Jeder recalc loest INTERN bereits eine 4-fach gestaffelte
+                    // Redraw-Kaskade aus (0/150/400/750ms) -> in Summe ~10 sichtbare
+                    // Komplett-Neuzeichnungen ueber 2s = sichtbares Flackern.
+                    // Beim Laden aendert sich die Orientierung NICHT, daher reicht
+                    // EIN einziger recalc-Durchlauf. Die Inhalte bleiben dadurch
+                    // genauso vollstaendig, nur ohne das wiederholte Aufblitzen.
+                    if (window.__psLoadRecalcTimer) { clearTimeout(window.__psLoadRecalcTimer); }
+                    window.__psLoadRecalcTimer = setTimeout(() => {
                         try { window.dispatchEvent(new Event('ps-canvas-recalc')); } catch(_) {}
+                        window.__psLoadRecalcTimer = null;
                     }, 300);
-                    setTimeout(() => { setRedrawCounter(r => r + 1); }, 600);
-                    setTimeout(() => {
-                        try { window.dispatchEvent(new Event('ps-canvas-recalc')); } catch(_) {}
-                        setRedrawCounter(r => r + 1);
-                    }, 1200);
                 } catch (e) { triggerToast('⚠️ Laden fehlgeschlagen: ' + e.message); }
             }, [triggerToast]);
 
