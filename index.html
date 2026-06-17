@@ -12430,8 +12430,26 @@ const bakeCanvasesIntoClone = (srcRoot, cloneRoot) => {
             img.className = (dc.className || '') + ' canvas-baked-image';
             img.style.cssText = (dc.getAttribute('style') || '') + ';' +
                 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:left top;pointer-events:none;touch-action:none;';
-            try { dc.style.visibility = 'hidden'; } catch(e){}
-            try { dc.parentNode && dc.parentNode.insertBefore(img, dc.nextSibling); } catch(e){}
+            // FIX (v51): Backen MUSS immer aktiv bleiben -> Bild zuerst sicher einfuegen,
+            // Canvas-Entfernen ist ein davon getrennter, optionaler Schritt.
+            let inserted = false;
+            try {
+                if (dc.parentNode) {
+                    dc.parentNode.insertBefore(img, dc.nextSibling);
+                    inserted = true;
+                }
+            } catch(e){}
+            if (!inserted) {
+                // Fallback: Bild trotzdem einhaengen, damit die Handschrift NIE fehlt.
+                try { (dc.parentElement || cloneRoot).appendChild(img); inserted = true; } catch(e){}
+            }
+            if (inserted) {
+                // Canvas entfernen verhindert die doppelten Schrift-Linien (iPad/WebKit).
+                try { dc.parentNode && dc.parentNode.removeChild(dc); }
+                catch(e){ try { dc.style.display = 'none'; dc.style.visibility = 'hidden'; } catch(_){} }
+            }
+            // Wenn das Bild nicht eingefuegt werden konnte: Canvas bewusst NICHT
+            // entfernen -> lieber Doppelung als gar keine Schrift.
         }
 
         // === METHODE 2: Key-basiert (für Kosten/Input Canvases mit data-cost-key) ===
@@ -12456,8 +12474,27 @@ const bakeCanvasesIntoClone = (srcRoot, cloneRoot) => {
             img.style.cssText =
                 'position:absolute;inset:0;width:100%;height:100%;' +
                 'object-fit:contain;pointer-events:none;touch-action:none;z-index:15;';
-            try { dc.style.visibility = 'hidden'; } catch(e){}
-            try { dc.parentNode && dc.parentNode.insertBefore(img, dc.nextSibling); } catch(e){}
+            // FIX (v51): Backen MUSS immer passieren -> Bild zuerst sicher einfuegen.
+            let inserted = false;
+            try {
+                if (dc.parentNode) {
+                    dc.parentNode.insertBefore(img, dc.nextSibling);
+                    inserted = true;
+                }
+            } catch(e){}
+            if (!inserted) {
+                // Fallback: Bild direkt an Canvas-Position bzw. in cloneRoot haengen,
+                // damit die Handschrift NIE verloren geht.
+                try { (dc.parentElement || cloneRoot).appendChild(img); inserted = true; } catch(e){}
+            }
+            // Canvas entfernen ist ein SEPARATER, optionaler Schritt:
+            if (inserted) {
+                try { dc.parentNode && dc.parentNode.removeChild(dc); }
+                catch(e){ try { dc.style.display = 'none'; dc.style.visibility = 'hidden'; } catch(_){} }
+            } else {
+                // Bild konnte nicht eingefuegt werden -> Canvas auf KEINEN Fall
+                // entfernen, sonst waere die Schrift weg. Lieber Doppelung riskieren.
+            }
         });
 
     } catch(e) {
@@ -12769,8 +12806,21 @@ const makeOfferPage = (sourceOfferEl, offerIndex, offerTitles) => {
                     im.src = re;
                     im.className = 'canvas-baked-image';
                     im.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:left top;pointer-events:none;z-index:10;';
-                    try { cvs.style.visibility = 'hidden'; } catch(e){}
-                    try { cvs.parentNode && cvs.parentNode.insertBefore(im, cvs.nextSibling); } catch(e){}
+                    // FIX (v51): Bild zuerst sicher einfuegen, Canvas-Entfernen separat.
+                    let imInserted = false;
+                    try {
+                        if (cvs.parentNode) {
+                            cvs.parentNode.insertBefore(im, cvs.nextSibling);
+                            imInserted = true;
+                        }
+                    } catch(e){}
+                    if (!imInserted) {
+                        try { (cvs.parentElement || container).appendChild(im); imInserted = true; } catch(e){}
+                    }
+                    if (imInserted) {
+                        try { cvs.parentNode && cvs.parentNode.removeChild(cvs); }
+                        catch(e){ try { cvs.style.visibility = 'hidden'; } catch(_){} }
+                    }
                 }
             }
         }
