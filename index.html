@@ -4345,7 +4345,7 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
             'Fernsehen_Label': 'Fernsehen', 'WiFi_Label': 'WiFi', 'Gesamtkosten_Label': 'Gesamtkosten', 'StatusOpen': 'Offen', 'StatusClosed': 'Abgeschlossen', 'StatusNeutral': 'Neutral'
         };
         
-        const INITIAL_QUESTIONS_DATA = { 'Kundenname': ["Wie lautet der Name?", "Rechnungsempfänger?", "Bestandskunde?"], 'Rufnummer': ["Rufnummer behalten?", "Portierung?", "Multi-SIM?"], 'Anbieter': ["Welcher Anbieter?", "Laufzeit?", "Gekündigt?"], 'Hardware': ["Aktuelles Handy?", "iOS oder Android?", "Kamera wichtig?", "Zubehör?", "Kaufdatum?"], 'Nutzung': ["Datenvolumen?", "Ausland?", "Hotspot?", "Streaming?", "5G?"], 'Haushalt': ["Personenanzahl?", "Geräte im WLAN?", "Jugendschutz?", "Smarthome?", "Partnerkarte?"], 'Weitere Produkte': ["Smartwatch?", "Tablet?", "Versicherung?", "Cloud?", "Music?"], 'Fernsehen': ["Streaming?", "Lineares TV?", "HD?", "Aufnahme?", "Mobile TV?"], 'WiFi': ["Empfang?", "Repeater?", "Router Standort?", "Wände?", "Geschwindigkeit?"], 'Gesamtkosten': ["Aktuelle Kosten?", "Budget?", "Mehrleistung?", "Zahlungsweise?", "Preisgarantie?"], 'default': ["Offene Fragen?", "Details?"] };
+        const INITIAL_QUESTIONS_DATA = { 'Kundenname': ["Wie lautet der Name?", "Rechnungsempfänger?", "Bestandskunde?"], 'Rufnummer': ["Rufnummer behalten?", "Portierung?", "Multi-SIM?", "Fremdnummer?", "Keine Nr. (nur Hardware)?"], 'Anbieter': ["Welcher Anbieter?", "Laufzeit?", "Gekündigt?"], 'Hardware': ["Aktuelles Handy?", "iOS oder Android?", "Kamera wichtig?", "Zubehör?", "Kaufdatum?"], 'Nutzung': ["Datenvolumen?", "Ausland?", "Hotspot?", "Streaming?", "5G?"], 'Haushalt': ["Personenanzahl?", "Geräte im WLAN?", "Jugendschutz?", "Smarthome?", "Partnerkarte?"], 'Weitere Produkte': ["Smartwatch?", "Tablet?", "Versicherung?", "Cloud?", "Music?"], 'Fernsehen': ["Streaming?", "Lineares TV?", "HD?", "Aufnahme?", "Mobile TV?"], 'WiFi': ["Empfang?", "Repeater?", "Router Standort?", "Wände?", "Geschwindigkeit?"], 'Gesamtkosten': ["Aktuelle Kosten?", "Budget?", "Mehrleistung?", "Zahlungsweise?", "Preisgarantie?"], 'default': ["Offene Fragen?", "Details?"] };
         const COLORS = [{ id: 'black', value: '#000000', label: 'Schwarz' }, { id: 'pencil', value: '#374151', label: 'Bleistift' }, { id: 'blue', value: '#0044ff', label: 'Blau' }, { id: 'red', value: '#ff0000', label: 'Rot' }, { id: 'green', value: '#00cc00', label: 'Grün' }, { id: 'yellow', value: '#ffcc00', label: 'Gelb' }, { id: 'pink', value: '#ff00cc', label: 'Rosa' }, { id: 'purple', value: '#8800ff', label: 'Lila' }, { id: 'white', value: '#ffffff', label: 'Weiß' }];
         const STROKE_SIZES = [{ id: 1, width: 2, label: 'Dünn' }, { id: 2, width: 4, label: 'Mittel' }, { id: 3, width: 8, label: 'Dick' }];
         
@@ -10247,12 +10247,17 @@ const handleFinishOfferClick = () => {
                 // Wenn Kunde unterschrieben hat: PDF-Export (Empfohlen) + danach ReferralModal
                 if (customerSignature) {
                     // === PDF-Dateiname = Rufnummer (MSISDN) des Kunden ===
-                    // Kleines Popup nach Abschluss: PDF heißt dann z.B. "Angebot 0176xxxxxxx.pdf"
+                    // v47.6: Rufnummer wird aus dem Formular vorausgefüllt (kein leeres Prompt mehr)
+                    const rufnummerFromForm = (textData?.Rufnummer || '').replace(/[^0-9+]/g, '').trim();
                     let __pdfName = `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
+                    let __msisdn = rufnummerFromForm;
                     try {
-                        const ms = window.prompt('📱 Bitte MSISDN / Rufnummer des Kunden eingeben:\n(Die PDF-Datei wird danach benannt)', '');
+                        const ms = window.prompt('📱 Rufnummer des Kunden für PDF-Dateiname:\n(Wird auch für den E-Mail-Betreff verwendet)', rufnummerFromForm || '');
                         const cleanMs = (ms || '').replace(/[^0-9+]/g, '').trim();
-                        if (cleanMs) __pdfName = `Angebot ${cleanMs}.pdf`;
+                        if (cleanMs) {
+                            __msisdn = cleanMs;
+                            __pdfName = `Angebot_${cleanMs}_${new Date().toISOString().slice(0,10)}.pdf`;
+                        }
                     } catch(e) {}
                     if (!runOnlyWithOfferValidity(() => {
                         triggerToast('PDF wird erstellt… einen Moment.');
@@ -10277,7 +10282,7 @@ const handleFinishOfferClick = () => {
                             // Direkt-Teilen nach langer Erzeugung fehl, kommt der "Jetzt teilen"-Dialog.
                             if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
                                 try {
-                                    await navigator.share({ title: 'Angebot', text: 'Ihr persönliches Angebot', files: [pdfFile] });
+                                    await navigator.share({ title: `Ihr persönliches Angebot`, text: `Vielen Dank für Ihren Besuch! Anbei Ihr persönliches Angebot. Bei Fragen sind wir jederzeit für Sie da. 😊${LINK_EMPLOYEE ? '\n\nMit freundlichen Grüßen\n' + LINK_EMPLOYEE : ''}`, files: [pdfFile] });
                                     triggerToast('✅ PDF geteilt.');
                                     setTimeout(() => setShowReferralModal(true), 400);
                                     return;
@@ -10465,19 +10470,28 @@ const handleFinishOfferClick = () => {
                 
                 // Diego (Admin) kann unbegrenzt überspringen
                 const isDiego = agentName === 'Diego da Silva';
+                // v47.5: "Nur Handyfinanzierung" ist eine legitime Bestellung, kein Skip.
+                // Zählt NICHT gegen das monatliche Limit (separate Kategorie).
+                const isHandyFinanzierung = (reasonData === 'Nur Handyfinanzierung');
                 
-                if (!isDiego && currentCount >= limit) {
+                if (!isDiego && !isHandyFinanzierung && currentCount >= limit) {
                     triggerToast(`⚠️ Skip-Limit (${limit}/Monat) erreicht. Admin kann es erhöhen.`);
                     return; // Nicht durchlassen
                 }
                 
-                // Durchlassen + zählen
-                await incrementSkipCount(agentName);
+                // Durchlassen + zählen (Handyfinanzierung: wird geloggt aber NICHT gezählt)
+                if (!isHandyFinanzierung) {
+                    await incrementSkipCount(agentName);
+                }
                 setSkipReason(reasonData);
                 setShowSkipReasonModal(false);
                 setView('offer');
                 setViewOfferCounter(c => c + 1);
-                triggerToast(`✓ Situation übersprungen. Grund: ${reasonData.substring(0, 30)}...`);
+                if (isHandyFinanzierung) {
+                    triggerToast('✓ Handyfinanzierung – zählt nicht als Skip');
+                } else {
+                    triggerToast(`✓ Situation übersprungen (${currentCount + 1}/${limit}). Grund: ${reasonData.substring(0, 30)}...`);
+                }
             };
 
             const handleClearAll = () => { try { offerValidityOverrideRef.current = ''; } catch(e) {} setDrawnStrokes({ main: [], email: [], beratungs_id: [], provider: [], notes: [], skip_reason: [], sit_Kundenname: [], sit_Rufnummer: [], sit_Anbieter: [], sit_Hardware: [], sit_Nutzung: [], sit_Haushalt: [], sit_WeitereProdukte: [], sit_Fernsehen: [], sit_WiFi: [], sit_Gesamtkosten: [], offer1: [], offer2: [], offer3: [], cost_einmalig: [], cost_monatlich1: [], cost_monatlich2: [], cost_smartphone: [], agent_name: [], date_field: [], offer_valid_until: [] }); setTextData({ AgentName: '', DateValue: '', OfferValidUntil: '', offer1: '', offer2: '', offer3: '', Kundenname: '', Rufnummer: '', Anbieter: '', Hardware: '', Nutzung: '', Haushalt: '', 'Weitere Produkte': '', Fernsehen: '', WiFi: '', Gesamtkosten: '' }); setCustomerType(""); setSegment(""); setProviderSelect(""); setCustomProvider(""); setIsCustomProvider(false); setWlanRecommendation(''); setSpeedRecommendation(''); setEmailText(''); setBeratungsId(''); setSkipReason(''); setSkipReasonMode('keyboard'); setCostState({ mobile: '', landline: '', tv: '' }); setOfferData(initialOfferData); setPackagePrices({ offer1:{einmalig:'',monatlich:''}, offer2:{einmalig:'',monatlich:''}, offer3:{einmalig:'',monatlich:''} }); setCanvasStatus({ offer1: 'neutral', offer2: 'neutral', offer3: 'neutral' }); setCustomerSignature(null); setCanvasImages({ offer1: null, offer2: null, offer3: null }); setImageTransform({ offer1: { x: 0, y: 0, scale: 1.0, rotation: 0 }, offer2: { x: 0, y: 0, scale: 1.0, rotation: 0 }, offer3: { x: 0, y: 0, scale: 1.0, rotation: 0 } }); setRedrawCounter(r => r + 1); try{clearAutosave();}catch(e){} try{setShowRestoreToast(false);}catch(e){} triggerToast('Alle Daten gelöscht und Ansicht zurückgesetzt.'); };
@@ -13286,7 +13300,7 @@ const opt = {
         margin: 0,
         filename: `Angebot_o2_${new Date().toISOString().split('T')[0]}.pdf`,
         pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', 'img', '.offer-canvas-wrap'] },
-        image: { type: 'jpeg', quality: 1.0 },
+        image: { type: 'jpeg', quality: 0.85 }, // v47.9: 1.0→0.85 spart ~60% Dateigröße, optisch kaum Unterschied. Verhindert "Anhang zu groß" bei Outlook/WhatsApp (Limit ~20-25 MB).
         html2canvas: {
             // iOS/iPad: Canvas-Pixel-Limit (~16M px) → hohe scale erzeugt Leerseiten.
             // Daher auf iOS-Geräten scale reduzieren.
@@ -13299,7 +13313,7 @@ const opt = {
                         // effektive Auflösung dpr*scale soll ~3-4 bleiben, nicht 8+
                         return Math.max(2, Math.min(3, Math.round(3 / Math.max(1, dpr) * 2)));
                     }
-                    return 4;
+                    return 3; // v47.9: 4→3 – immer noch scharf, aber deutlich kleinere Datei (E-Mail-tauglich)
                 } catch(e) { return 3; }
             })(),
 
@@ -14230,12 +14244,18 @@ const handlePDFShare = async () => {
 
                 try { setShowFinishTypeModal(false); } catch(e) {}
                 // === Nach Unterschrift: PDF-Name = Rufnummer (MSISDN) des Kunden ===
+                // v47.6: Rufnummer wird aus dem Formular vorausgefüllt
+                const rufnummerFromForm2 = (textData?.Rufnummer || '').replace(/[^0-9+]/g, '').trim();
                 let __pdfName2 = `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
+                let __msisdn2 = rufnummerFromForm2;
                 try {
                     if (customerSignature) {
-                        const ms = window.prompt('📱 Bitte MSISDN / Rufnummer des Kunden eingeben:\n(Die PDF-Datei wird danach benannt)', '');
+                        const ms = window.prompt('📱 Rufnummer des Kunden für PDF-Dateiname:\n(Wird auch für den E-Mail-Betreff verwendet)', rufnummerFromForm2 || '');
                         const cleanMs = (ms || '').replace(/[^0-9+]/g, '').trim();
-                        if (cleanMs) __pdfName2 = `Angebot ${cleanMs}.pdf`;
+                        if (cleanMs) {
+                            __msisdn2 = cleanMs;
+                            __pdfName2 = `Angebot_${cleanMs}_${new Date().toISOString().slice(0,10)}.pdf`;
+                        }
                     }
                 } catch(e) {}
                 triggerToast('PDF wird erstellt… einen Moment.');
@@ -14245,6 +14265,12 @@ const handlePDFShare = async () => {
                     const pdfFile = new File([blob], pdfFileName, { type: 'application/pdf' });
                     window.__lastPdfBlob = blob; window.__lastPdfFile = pdfFile;
 
+                    // v47.9: PDF-Größe prüfen – Outlook/WhatsApp lehnen >20-25 MB Anhänge ab.
+                    const mb = blob.size / (1024 * 1024);
+                    if (mb > 20) {
+                        triggerToast(`⚠️ PDF ist ${mb.toFixed(1)} MB – evtl. zu groß für E-Mail. Tipp: weniger/kleinere Fotos verwenden.`);
+                    }
+
                     // ── Statistik sofort loggen (zählt unabhängig vom Teilen-Weg als "Angebot") ──
                     logQuoteToStatistics();
 
@@ -14253,7 +14279,7 @@ const handlePDFShare = async () => {
                     // zeigen wir den "Jetzt teilen"-Dialog (Button-Tap = neue Geste → klappt sicher).
                     if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
                         try {
-                            await navigator.share({ title: 'Angebot', text: 'Ihr persönliches Angebot', files: [pdfFile] });
+                            await navigator.share({ title: `Ihr persönliches Angebot`, text: `Vielen Dank für Ihren Besuch! Anbei Ihr persönliches Angebot. Bei Fragen sind wir jederzeit für Sie da. 😊${LINK_EMPLOYEE ? '\n\nMit freundlichen Grüßen\n' + LINK_EMPLOYEE : ''}`, files: [pdfFile] });
                             triggerToast('✅ PDF geteilt.');
                             setTimeout(() => setShowReferralModal(true), 400);
                             return;
@@ -14524,7 +14550,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v47.4</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v47.9</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
