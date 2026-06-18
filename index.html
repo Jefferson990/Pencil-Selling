@@ -9118,6 +9118,100 @@ const toolRef = useRef('pen');
             const scaleRef2 = useRef({ baseWidth: 0, scaleFactor: 1 });
             const scaleRef3 = useRef({ baseWidth: 0, scaleFactor: 1 });
             const [redrawCounter, setRedrawCounter] = useState(0);
+
+            // ═══════════════════════════════════════════════════════════════
+            // v56: ROBUSTE WIEDERHERSTELLUNG ("Redraw bis sichtbar")
+            // ───────────────────────────────────────────────────────────────
+            // Problem (iPad, bes. nach längerer Zeit / kaltem Safari-Start):
+            // Nach dem Laden eines Angebots sind die Strokes im State, aber die
+            // Canvas-Elemente sind im Moment des State-Updates noch 0×0 (View
+            // mountet erst, Layout steht noch nicht). Die alten festen Timer
+            // (300/600/1200 ms) liefen dann ins Leere → Linien unsichtbar,
+            // obwohl die Daten da sind. Status blieb auf "Abgeschlossen", weil
+            // die Stroke-Arrays ja gefüllt sind.
+            //
+            // Lösung: KEINE festen Timer mehr. Stattdessen eine selbst-prüfende
+            // Schleife, die so lange recalc+redraw auslöst, BIS die Canvasse
+            // tatsächlich Tinte zeigen (oder ein Zeit-Maximum erreicht ist).
+            // ═══════════════════════════════════════════════════════════════
+            const restoreRedrawTimerRef = React.useRef(null);
+            const forceRestoreRedraw = React.useCallback((expectedStrokes) => {
+                // Bereits laufende Schleife abbrechen (z.B. wenn schnell 2× geladen wird)
+                if (restoreRedrawTimerRef.current) {
+                    clearTimeout(restoreRedrawTimerRef.current);
+                    restoreRedrawTimerRef.current = null;
+                }
+                const startTs = Date.now();
+                const MAX_MS = 6000;     // max. 6 s lang versuchen
+                const STEP_MS = 200;     // alle 200 ms ein Versuch
+                let stableHits = 0;      // wie oft hintereinander "alles sichtbar"
+
+                // Welche Stroke-Keys MÜSSEN sichtbar werden? (nur die nicht-leeren)
+                const keysWithInk = [];
+                try {
+                    const src = expectedStrokes || window.__psStrokes || {};
+                    for (const k of Object.keys(src)) {
+                        if (Array.isArray(src[k]) && src[k].length > 0) keysWithInk.push(k);
+                    }
+                } catch(_) {}
+
+                // Prüft, ob ein Canvas zu einem Key tatsächlich Pixel zeigt
+                const canvasShowsInk = (key) => {
+                    try {
+                        // Sichtbares Canvas über vorhandene Attribute finden:
+                        // Offer/Kosten-Canvas tragen data-stroke-key, Situations-Canvas data-sit-key.
+                        const el = document.querySelector(
+                            'canvas[data-stroke-key="' + key + '"], canvas[data-sit-key="' + key + '"], canvas[data-cost-key="' + key + '"]'
+                        );
+                        if (!el || el.width < 2 || el.height < 2) return false;
+                        const ctx = el.getContext('2d');
+                        // Stichprobe statt voller Scan (Performance): zentraler Streifen
+                        const w = el.width, h = el.height;
+                        const data = ctx.getImageData(0, 0, w, h).data;
+                        // Schritt durch jeden 40. Pixel → schnell genug, findet jede Linie
+                        for (let i = 3; i < data.length; i += 160) {
+                            if (data[i] > 8) return true; // Alpha > 8 = Tinte
+                        }
+                        return false;
+                    } catch(_) {
+                        // getImageData kann bei 0×0 / nicht gemountet werfen → noch nicht bereit
+                        return false;
+                    }
+                };
+
+                const tick = () => {
+                    // 1) Layout neu vermessen + globalen Redraw anstoßen
+                    try { window.dispatchEvent(new Event('ps-canvas-recalc')); } catch(_) {}
+                    setRedrawCounter(r => r + 1);
+
+                    // 2) Prüfen, ob alle erwarteten Canvasse jetzt Tinte zeigen
+                    let allVisible = true;
+                    if (keysWithInk.length > 0) {
+                        for (const k of keysWithInk) {
+                            if (!canvasShowsInk(k)) { allVisible = false; break; }
+                        }
+                    }
+
+                    const elapsed = Date.now() - startTs;
+
+                    if (keysWithInk.length === 0) {
+                        // Nichts zu zeichnen → nach kurzem Sicherheits-Redraw fertig
+                        if (elapsed > 600) { restoreRedrawTimerRef.current = null; return; }
+                    } else if (allVisible) {
+                        // Alles sichtbar → noch 2× bestätigen (gegen iPad-Sub-Pixel-Flackern), dann fertig
+                        stableHits += 1;
+                        if (stableHits >= 2) { restoreRedrawTimerRef.current = null; return; }
+                    } else {
+                        stableHits = 0;
+                    }
+
+                    if (elapsed >= MAX_MS) { restoreRedrawTimerRef.current = null; return; }
+                    restoreRedrawTimerRef.current = setTimeout(tick, STEP_MS);
+                };
+                // Erster Versuch sofort (über rAF, damit React den State-Update gerendert hat)
+                requestAnimationFrame(() => requestAnimationFrame(tick));
+            }, []);
+
             // ✅ Auto-Redraw + Smart-Shift bei Drehen/Resize/Vollbild (damit nichts rechts abgeschnitten wird)
             useEffect(() => {
                 const setShift = (px) => {
@@ -9923,20 +10017,14 @@ const fileInputRef = useRef(null);
                     setSessionOfferId(offer.id); // v48.3: erneutes Speichern überschreibt dieses Angebot
                     triggerToast('✅ Angebot geladen: ' + (offer.label || 'Unbenannt'));
 
-                    // v47.2: Robustere Redraw-Sequenz – Canvas braucht Zeit zum Mounten
-                    // 1. React rendert die neue View (300ms)
-                    // 2. Canvases neu skalieren (ps-canvas-recalc)
-                    // 3. Redraw mit korrekten Dimensionen (600ms + 1200ms)
-                    setTimeout(() => {
-                        try { window.dispatchEvent(new Event('ps-canvas-recalc')); } catch(_) {}
-                    }, 300);
-                    setTimeout(() => { setRedrawCounter(r => r + 1); }, 600);
-                    setTimeout(() => {
-                        try { window.dispatchEvent(new Event('ps-canvas-recalc')); } catch(_) {}
-                        setRedrawCounter(r => r + 1);
-                    }, 1200);
+                    // v56: ROBUSTE Wiederherstellung statt fester Timer.
+                    // Die alten 300/600/1200ms reichten auf kaltem iPad-Safari nicht aus
+                    // (Canvas noch nicht gemountet → Strokes im State, aber unsichtbar).
+                    // forceRestoreRedraw zeichnet jetzt so lange neu, bis die Tinte
+                    // wirklich auf dem Canvas erscheint (max. 6s).
+                    forceRestoreRedraw(offer.drawnStrokes);
                 } catch (e) { triggerToast('⚠️ Laden fehlgeschlagen: ' + e.message); }
-            }, [triggerToast]);
+            }, [triggerToast, forceRestoreRedraw]);
 
             const handleDeleteOffer = useCallback(async (id) => {
                 await deleteOffer(id);
@@ -10037,16 +10125,10 @@ const fileInputRef = useRef(null);
             React.useEffect(() => {
                 if (autosaveRestoredRef.current) return;
                 autosaveRestoredRef.current = true;
-                try {
-                    const raw = localStorage.getItem(AUTOSAVE_KEY);
-                    if (!raw) return;
-                    const snap = JSON.parse(raw);
-                    if (!snap || !snap.ts || (Date.now()-snap.ts) > 8*60*60*1000) return;
-                    const hasContent = snap.textData && (
-                        Object.values(snap.textData).some(v => v && String(v).trim().length > 2) ||
-                        snap.customerType || snap.segment);
-                    if (hasContent) setShowRestoreToast(true);
-                } catch(e) {}
+                // v56: Das alte "Sitzung wiederherstellen"-Banner oben rechts wird NICHT
+                // mehr angezeigt. Es ist durch das untere 💾-System (Speichern/Angebote)
+                // ersetzt. Der Autosave läuft im Hintergrund weiter (Schutz bei Reload),
+                // aber das aufdringliche Banner entfällt.
             }, []);
 
             const handleRestoreAutosave = () => {
@@ -10082,11 +10164,9 @@ const fileInputRef = useRef(null);
                     if (snap.tvSnapshot) setTvSnapshot(snap.tvSnapshot);
                     if (snap.canvasImages) setCanvasImages(snap.canvasImages);
                     if (snap.imageTransform) setImageTransform(snap.imageTransform);
-                    // Gestaffelte Redraws: Layout braucht Zeit um Canvas-Größen zu berechnen.
-                    // Erster Redraw sofort, weitere nach 200/600ms für Sicherheit.
-                    setRedrawCounter(r => r+1);
-                    setTimeout(() => setRedrawCounter(r => r+1), 200);
-                    setTimeout(() => setRedrawCounter(r => r+1), 600);
+                    // v56: Robuste Wiederherstellung statt fester Timer – zeichnet,
+                    // bis die Tinte tatsächlich sichtbar ist (s. forceRestoreRedraw).
+                    forceRestoreRedraw(snap.drawnStrokes);
                     setShowRestoreToast(false);
                     triggerToast('✅ Sitzung wiederhergestellt!');
                 } catch(e) { triggerToast('Wiederherstellung fehlgeschlagen.'); }
@@ -12913,7 +12993,6 @@ const makeOutroContent = () => {
           <div class="share-outro-qr">
             <img crossorigin="anonymous" referrerpolicy="no-referrer" src="${qrUrl(googleReviewUrl,'003CA6')}" alt="QR Google" />
           </div>
-          <div class="share-outro-link">${googleReviewUrl}</div>
         </div>
 
         <div class="share-outro-card share-outro-card-focus">
@@ -16179,9 +16258,8 @@ const handlePDFShare = async () => {
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">{renderOfferInput('agent', 'AgentLabel', 'text')}{renderOfferInput('datum', 'DateLabel', 'text')}{renderOfferInput('gueltig', 'ValidUntilLabel', 'date')}<div className="col-span-2">
   <div className="h-12 w-full bg-white border border-slate-300 rounded-lg overflow-hidden flex items-stretch">
-    {/* Shop-Stempel (fix links) */}
-    <div className="shrink-0 flex items-center gap-2 px-2 bg-slate-50 border-r border-slate-200">
-      <img src={SHOP_STAMP_QR} alt="QR Code" className="h-9 w-9 object-contain" />
+    {/* Shop-Stempel (fix links) – QR-Code entfernt (v56), nur Text */}
+    <div className="shrink-0 flex items-center gap-2 px-3 bg-slate-50 border-r border-slate-200">
       <div className="flex flex-col leading-tight">
         <span className="text-[10px] font-black text-slate-700 uppercase tracking-wide">Stempel</span>
         <span className="text-[11px] font-bold text-slate-800 whitespace-nowrap">{SHOP_STAMP_TEXT}</span>
