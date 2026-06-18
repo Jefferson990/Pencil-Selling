@@ -9629,18 +9629,22 @@ const fileInputRef = useRef(null);
             const [showSaveDialog, setShowSaveDialog] = useState(false);
             const [saveDialogName, setSaveDialogName] = useState('');
             const [loadedOfferId, setLoadedOfferId] = useState(null); // v48.1: für Löschung nach Fertigstellen
+            const [sessionOfferId, setSessionOfferId] = useState(null); // v48.3: aktuell aktive Session (für Überschreiben)
+            const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
+            const [pendingSaveName, setPendingSaveName] = useState('');
 
             const loadOffersList = useCallback(async () => {
                 const list = await listOffers();
                 setSavedOffersList(list || []);
             }, []);
 
-            const handleSaveOffer = useCallback(async (customName) => {
+            const handleSaveOffer = useCallback(async (customName, overwriteId) => {
                 setOfferSaving(true);
                 try {
                     const kundenName = textData?.Kundenname || textData?.CustomerName || '';
                     const datum = textData?.DateValue || new Date().toLocaleDateString('de-DE');
-                    const id = 'offer_' + Date.now();
+                    // v48.3: Wenn überschrieben wird, die bestehende ID behalten – sonst neue.
+                    const id = overwriteId || ('offer_' + Date.now());
                     // Label-Priorität: 1. Custom-Name 2. Kundenname 3. "Unbenannt"
                     const label = (customName && customName.trim()) ? customName.trim() : (kundenName || 'Unbenannt');
                     const offer = {
@@ -9686,7 +9690,8 @@ const fileInputRef = useRef(null);
                     };
                     const ok = await saveOffer(offer);
                     if (ok) {
-                        triggerToast('💾 Gespeichert: ' + label);
+                        triggerToast(overwriteId ? '💾 Aktualisiert: ' + label : '💾 Gespeichert: ' + label);
+                        setSessionOfferId(id); // v48.3: diese Session ist jetzt mit dieser ID verknüpft
                         await loadOffersList();
                     } else {
                         triggerToast('⚠️ Speichern fehlgeschlagen');
@@ -9694,8 +9699,23 @@ const fileInputRef = useRef(null);
                 } catch (e) { triggerToast('⚠️ Fehler: ' + e.message); }
                 setOfferSaving(false);
                 setShowSaveDialog(false);
+                setShowOverwriteDialog(false);
                 setSaveDialogName('');
             }, [textData, drawnStrokes, emailText, beratungsId, view, customerType, providerSelect, customProvider, isCustomProvider, segment, canvasImages, imageTransform, offerData, costState, packagePrices, showSecondYear, gutschriftBetrag, showSavingsBlock, showCostSection, checkedTechs, techUebernommen, netBundleMatched, wlanSnapshot, wlanRecommendation, speedRecommendation, followUpsByKey, customerSignature, displayLanguage, translatedText, staticTranslations, sitLayoutMode, offerLayoutMode, triggerToast, loadOffersList]);
+
+            // v48.3: Speichern-Button gedrückt → prüfen ob diese Session schon gespeichert wurde
+            const handleSaveButtonClick = useCallback(() => {
+                const name = textData?.Kundenname || '';
+                if (sessionOfferId) {
+                    // Schon mal gespeichert in dieser Session → Überschreiben-Frage
+                    setPendingSaveName(name);
+                    setShowOverwriteDialog(true);
+                } else {
+                    // Erstes Speichern → normaler Dialog mit Namensfeld
+                    setSaveDialogName(name);
+                    setShowSaveDialog(true);
+                }
+            }, [textData, sessionOfferId]);
 
             const handleLoadOffer = useCallback((offer) => {
                 try {
@@ -9735,6 +9755,7 @@ const fileInputRef = useRef(null);
 
                     setShowSavedOffers(false);
                     setLoadedOfferId(offer.id); // v48.1: merken, welches Angebot geladen wurde
+                    setSessionOfferId(offer.id); // v48.3: erneutes Speichern überschreibt dieses Angebot
                     triggerToast('✅ Angebot geladen: ' + (offer.label || 'Unbenannt'));
 
                     // v47.2: Robustere Redraw-Sequenz – Canvas braucht Zeit zum Mounten
@@ -10458,6 +10479,7 @@ const handleFinishOfferClick = () => {
                     deleteOffer(loadedOfferId).then(() => { loadOffersList(); }).catch(()=>{});
                     setLoadedOfferId(null);
                 }
+                setSessionOfferId(null); // v48.3: Session beendet → nächstes Speichern ist wieder "neu"
 
                 if (type === 'deal') {
                     // Abschluss-Pfad: Analytics nach Unterschrift (→ handleSignatureSave)
@@ -14604,6 +14626,29 @@ const handlePDFShare = async () => {
                     <PinLockModal isOpen={showPinLock} onClose={()=>setShowPinLock(false)} onSuccess={()=>{ setShowPinLock(false); setShowStats(true); }} />
                     <AdminSafeBoundary onClose={()=>setShowStats(false)}><StatsModal isOpen={showStats} onClose={()=>setShowStats(false)} onOpenAdmin={()=>{ if (LINK_EMPLOYEE === 'Diego da Silva') { setShowStats(false); setShowAdmin(true); } }} /></AdminSafeBoundary>
 
+                    {/* 💾 Überschreiben-Dialog (v48.3) – wenn diese Session schon gespeichert wurde */}
+                    {showOverwriteDialog && ReactDOM.createPortal(
+                        <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.45)'}} onClick={()=>setShowOverwriteDialog(false)}>
+                            <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:'20px',width:'90%',maxWidth:'400px',boxShadow:'0 20px 60px rgba(0,0,0,0.25)',overflow:'hidden'}}>
+                                <div style={{padding:'22px 22px 8px',textAlign:'center'}}>
+                                    <div style={{fontSize:'38px',marginBottom:'8px'}}>💾</div>
+                                    <div style={{fontSize:'18px',fontWeight:900,color:'#1e293b',marginBottom:'6px'}}>Bereits gespeichert</div>
+                                    <div style={{fontSize:'13px',color:'#64748b',lineHeight:1.5}}>Dieses Angebot wurde in dieser Sitzung schon gespeichert. Möchtest du das vorhandene aktualisieren oder ein neues anlegen?</div>
+                                </div>
+                                <div style={{display:'flex',flexDirection:'column',gap:'8px',padding:'16px 22px 20px'}}>
+                                    <button onClick={()=>handleSaveOffer(pendingSaveName, sessionOfferId)} disabled={offerSaving} style={{width:'100%',padding:'13px',borderRadius:'12px',border:'none',background:'#2563eb',color:'#fff',fontWeight:800,fontSize:'15px',cursor:'pointer',opacity:offerSaving?0.5:1,boxShadow:'0 3px 12px rgba(37,99,235,0.35)'}}>
+                                        🔄 Vorhandenes aktualisieren
+                                    </button>
+                                    <button onClick={()=>{setShowOverwriteDialog(false);setSaveDialogName(pendingSaveName);setShowSaveDialog(true);}} style={{width:'100%',padding:'12px',borderRadius:'12px',border:'1.5px solid #bfdbfe',background:'#eff6ff',color:'#1d4ed8',fontWeight:700,fontSize:'14px',cursor:'pointer'}}>
+                                        ➕ Als neues Angebot speichern
+                                    </button>
+                                    <button onClick={()=>setShowOverwriteDialog(false)} style={{width:'100%',padding:'10px',borderRadius:'12px',border:'none',background:'transparent',color:'#94a3b8',fontWeight:600,fontSize:'13px',cursor:'pointer'}}>Abbrechen</button>
+                                </div>
+                            </div>
+                        </div>,
+                        document.body
+                    )}
+
                     {/* 💾 Speichern-Dialog (optionaler Dateiname) */}
                     {showSaveDialog && ReactDOM.createPortal(
                         <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.45)'}} onClick={()=>{setShowSaveDialog(false);setSaveDialogName('');}}>
@@ -14696,7 +14741,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v48.2</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v48.3</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
@@ -16164,7 +16209,7 @@ const handlePDFShare = async () => {
 
                     <div className="h-14 bg-[#f0f6ff] border-t border-slate-200 flex items-center px-4 shrink-0 justify-between shadow-sm footer-bar" style={{position:"fixed",bottom:0,left:0,right:0,width:"100%",zIndex:9000,boxSizing:"border-box"}}>
                         {view === 'situation' ? (<><div className="flex items-center gap-3"><div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm"><button onClick={() => setInputMode('pen')} className={`p-2 rounded-md transition-colors ${inputMode === 'pen' ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`} title="Stift-Modus (Stylus Only)"><Icon d={ICONS.Pen} size={16} /></button><button onClick={() => setInputMode('keyboard')} className={`p-2 rounded-md transition-colors ${inputMode === 'keyboard' ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`} title="Tastatur-Modus"><Icon d={ICONS.Keyboard} size={16} /></button></div>{inputMode === 'pen' && !scrollMode && (<div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm animate-in items-center relative z-50">{renderPenToolButtons()}{(tool === 'pen' || tool === 'fountain' || tool === 'ballpen' || tool === 'highlighter') && (<div className="opacity-slider-group flex items-center gap-2 bg-slate-50 rounded border border-slate-200 p-1.5 ml-2"><Icon d={ICONS.Sun} size={16} className="text-slate-400"/><input type="range" min="10" max="100" value={Math.round(opacity * 100)} onChange={(e) => setOpacity(parseInt(e.target.value) / 100)} className="w-20 h-1 appearance-none bg-blue-200 rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-lg" title={`Deckkraft: ${Math.round(opacity * 100)}%`}/></div>)}<div className="toolbar-divider w-px h-6 bg-slate-200 mx-1"></div><div className="color-picker-group relative"><button onClick={() => setShowColorPicker(!showColorPicker)} className="w-8 h-8 rounded-full border shadow-sm flex items-center justify-center ring-offset-2 focus:ring-2" style={{ backgroundColor: color }}><Icon d={ICONS.Palette} size={12} className="text-white mix-blend-difference" /></button>{showColorPicker && (<div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-white p-3 rounded-xl shadow-2xl border border-slate-200 grid grid-cols-4 gap-2 w-[180px] z-[100]"><div className="col-span-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center mb-1">Farbe wählen</div>{COLORS.map(c => <button key={c.id} onClick={() => { setColor(c.value); setShowColorPicker(false); if(c.id==='white') triggerToast('Weiß: auf hellem Canvas kaum sichtbar!'); }} className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${color === c.value ? 'border-slate-400 shadow-inner scale-110' : 'border-transparent'}`} style={{ backgroundColor: c.value }} title={c.label} />)}</div>)}</div></div>)}{inputMode === 'keyboard' && (<div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm animate-in items-center relative z-50"><div className="flex bg-slate-50 rounded border border-slate-200 p-0.5 gap-0.5"><button onClick={() => setTextSize('small')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'small' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'11px'}}>S</button><button onClick={() => setTextSize('medium')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'medium' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'14px'}}>M</button><button onClick={() => setTextSize('large')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'large' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'18px'}}>L</button></div><div className="w-px h-6 bg-slate-200 mx-1"></div><div className="flex gap-1"><button onClick={() => setTextStyle(p => ({...p, bold: !p.bold}))} className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${textStyle.bold ? 'bg-blue-100 text-blue-600 ring-1 ring-blue-200' : 'text-slate-500 hover:bg-slate-100'}`} title="Fett" style={{fontSize:'16px',fontWeight:900}}>F</button><button onClick={() => setTextStyle(p => ({...p, italic: !p.italic}))} className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${textStyle.italic ? 'bg-blue-100 text-blue-600 ring-1 ring-blue-200' : 'text-slate-500 hover:bg-slate-100'}`} title="Kursiv" style={{fontStyle:'italic',fontFamily:'Georgia,serif',fontSize:'15px',fontWeight:600}}>K</button></div></div>)}</div><div className="flex items-center gap-2">
-                            <button onClick={()=>{setSaveDialogName(textData?.Kundenname||"");setShowSaveDialog(true);}} disabled={offerSaving} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-emerald-500 hover:bg-emerald-50 transition-colors" title="💾 Angebot speichern" style={{opacity:offerSaving?0.5:1}}><Icon d={ICONS.Save||ICONS.CheckCircle} size={18}/></button>
+                            <button onClick={handleSaveButtonClick} disabled={offerSaving} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-emerald-500 hover:bg-emerald-50 transition-colors" title="💾 Angebot speichern" style={{opacity:offerSaving?0.5:1}}><Icon d={ICONS.Save||ICONS.CheckCircle} size={18}/></button>
                             <button onClick={()=>{loadOffersList();setShowSavedOffers(true);}} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-blue-500 hover:bg-blue-50 transition-colors" title="📋 Gespeicherte Angebote"><Icon d={ICONS.List} size={18}/></button>
                             <button onClick={() => { if (LINK_EMPLOYEE === 'Diego da Silva') { handleSkipToOffer('Übersprungen (Admin)'); } else { setShowSkipReasonModal(true); } }} className="px-4 py-2 text-slate-500 font-bold text-xs hover:bg-slate-100 rounded-lg transition-colors">Überspringen</button>
                             <button onClick={() => { if(isFormValid){ setView('offer'); setViewOfferCounter(c => c + 1); } }} className={`px-6 py-2 rounded-lg font-bold shadow-lg text-sm flex items-center gap-2 transition-all ${isFormValid ? 'bg-blue-600 text-white hover:bg-blue-700 cursor-pointer' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`} title={isFormValid ? "Weiter zum Angebot" : "Bitte Pflichtfelder ausfüllen (Kundentyp, Segment, Anbieter)"}>Zum Angebot <Icon d={ICONS.ArrowRight} size={18} /></button>
@@ -16186,7 +16231,7 @@ const handlePDFShare = async () => {
                                     </div>
                                     );
                                 })()}
-                                <button onClick={()=>{setSaveDialogName(textData?.Kundenname||"");setShowSaveDialog(true);}} disabled={offerSaving} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-emerald-500 hover:bg-emerald-50 transition-colors mr-2" title="💾 Angebot speichern" style={{opacity:offerSaving?0.5:1}}><Icon d={ICONS.Save||ICONS.CheckCircle} size={18}/></button>
+                                <button onClick={handleSaveButtonClick} disabled={offerSaving} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-emerald-500 hover:bg-emerald-50 transition-colors mr-2" title="💾 Angebot speichern" style={{opacity:offerSaving?0.5:1}}><Icon d={ICONS.Save||ICONS.CheckCircle} size={18}/></button>
                                 <button onClick={()=>{loadOffersList();setShowSavedOffers(true);}} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-blue-500 hover:bg-blue-50 transition-colors mr-2" title="📋 Gespeicherte Angebote"><Icon d={ICONS.List} size={18}/></button>
                                 <button onClick={() => setView('situation')} className="px-6 py-2 text-slate-500 font-bold text-xs hover:bg-slate-100 rounded-lg transition-colors mr-2 flex items-center gap-1"><Icon d={ICONS.ArrowLeft} size={14}/> Zurück</button><button onClick={handleFinishOfferClick} disabled={!isReadyToFinish}  className={`px-6 py-2 rounded-lg font-bold shadow-lg text-sm flex items-center gap-2 transition-all ${
                     (!isReadyToFinish)
