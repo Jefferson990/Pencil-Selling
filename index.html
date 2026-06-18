@@ -2334,13 +2334,44 @@ body.pdf-share-mode .share-outro,
     min-width: 0 !important;
   }
   .footer-bar > div:last-child button {
-    padding: 6px 10px !important;
+    padding: 6px 8px !important;
+    font-size: 10px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+  /* v48.0: Mittlere Action-Icons (Speichern/Angebote/Globus/Personen/etc.) kompakter,
+     damit rechts immer Platz für "Fertigstellen" bleibt. */
+  .footer-bar .footer-action-icons button {
+    padding: 5px 6px !important;
+    min-width: 30px !important;
+  }
+  /* Farbkreis kleiner */
+  .footer-bar .w-8.h-8.rounded-full { width: 26px !important; height: 26px !important; }
+}
+
+/* v48.0: Schmale Tablets/iPad Portrait (≤ 1024px): noch kompakter, Fertigstellen sichtbar */
+@media (max-width: 1024px) {
+  .footer-bar > div:last-child {
+    flex-shrink: 0 !important;
+    min-width: 0 !important;
+  }
+  .footer-bar > div:last-child button {
+    padding: 7px 10px !important;
     font-size: 11px !important;
     white-space: nowrap !important;
     flex-shrink: 0 !important;
   }
-  /* Farbkreis kleiner */
-  .footer-bar .w-8.h-8.rounded-full { width: 26px !important; height: 26px !important; }
+  /* Zurück-Button darf schrumpfen, Fertigstellen nie */
+  .footer-bar > div:last-child button:first-child {
+    padding: 7px 8px !important;
+  }
+  .footer-bar .footer-action-icons {
+    gap: 1px !important;
+  }
+  .footer-bar .footer-action-icons button {
+    padding: 5px 5px !important;
+    min-width: 28px !important;
+  }
 }
 
 
@@ -4971,12 +5002,12 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
           const[tiers,setTiers]=useState([{dl:16,ul:2.4,on:true},{dl:50,ul:10,on:true},{dl:100,ul:40,on:true},{dl:250,ul:50,on:true},{dl:500,ul:100,on:true},{dl:1000,ul:200,on:true}]);
           const[customDl,setCustomDl]=useState('');
           const[activities,setActivities]=useState([
-            {k:'surf',emoji:'🌐',label:'Surfen',dl:1.5,ul:0.2,n:2},
-            {k:'video',emoji:'📹',label:'Videotelefonie',dl:3,ul:1.5,n:1},
-            {k:'stream',emoji:'📺',label:'Streaming HD',dl:5,ul:1,n:1},
+            {k:'surf',emoji:'🌐',label:'Surfen',dl:1.5,ul:0.2,n:0},
+            {k:'video',emoji:'📹',label:'Videotelefonie',dl:3,ul:1.5,n:0},
+            {k:'stream',emoji:'📺',label:'Streaming HD',dl:5,ul:1,n:0},
             {k:'stream4k',emoji:'🎬',label:'4K-Streaming',dl:25,ul:2,n:0},
-            {k:'gaming',emoji:'🎮',label:'Online-Gaming',dl:3,ul:0.5,n:1},
-            {k:'home',emoji:'💼',label:'Home-Office',dl:4,ul:2,n:1}
+            {k:'gaming',emoji:'🎮',label:'Online-Gaming',dl:3,ul:0.5,n:0},
+            {k:'home',emoji:'💼',label:'Home-Office',dl:4,ul:2,n:0}
           ]);
           const{rec,needDl,needUl,gaugePct}=useMemo(()=>{
             let nDl=0,nUl=0;
@@ -4987,8 +5018,15 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
             const WLAN_EFF=0.6;
             nDl=Math.ceil(nDl*1.2/WLAN_EFF);nUl=Math.ceil(nUl*1.2/WLAN_EFF);
             const avail=tiers.filter(t=>t.on).sort((a,b)=>a.dl-b.dl);
-            let r=avail.find(t=>t.dl>=nDl&&t.ul>=Math.max(nUl,2));
-            if(!r&&avail.length>0)r=avail[avail.length-1];
+            // v48.0: Bei 0 Aktivitäten → niedrigste Stufe (16) als Startpunkt.
+            // Der Rechner klettert dann mit jeder Aktivität sichtbar hoch.
+            let r;
+            if (nDl === 0 && avail.length > 0) {
+                r = avail[0]; // unterste verfügbare Stufe (16er)
+            } else {
+                r = avail.find(t=>t.dl>=nDl&&t.ul>=Math.max(nUl,2));
+                if(!r&&avail.length>0)r=avail[avail.length-1];
+            }
             const pct=r?Math.min(100,Math.round((nDl/r.dl)*100)):0;
             return{needDl:nDl,needUl:nUl,rec:r,gaugePct:pct};
           },[activities,tiers]);
@@ -7503,6 +7541,53 @@ const highResHTML = buildHighResBundleHTML(d);
                                     <div style={{fontSize:'10px',color:'#94a3b8',marginTop:'4px'}}>{skipped} von {total} Pencil Sellings</div>
                                 </div>
                             </div>
+
+                            {/* v48.2: Papier vs. Digital */}
+                            {(() => {
+                                const counters = getOutputCounters();
+                                const PAGES = 7;
+                                // Aktueller Monat + Gesamt
+                                const monthKey = new Date().toISOString().slice(0,7);
+                                const cur = counters[monthKey] || { print: 0, digital: 0 };
+                                let totalPrint = 0, totalDigital = 0;
+                                Object.values(counters).forEach(c => { totalPrint += (c.print||0); totalDigital += (c.digital||0); });
+                                const sumActions = totalPrint + totalDigital;
+                                const digitalPct = sumActions ? Math.round(totalDigital / sumActions * 100) : 0;
+                                const pagesPrinted = totalPrint * PAGES;
+                                const pagesSaved = totalDigital * PAGES;
+                                return (
+                                    <div style={{background:'#fff',borderRadius:'14px',border:'1.5px solid #bbf7d0',padding:'14px 16px',marginTop:'8px'}}>
+                                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                                            <div style={{fontSize:'10px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.06em'}}>🌱 Papier vs. Digital (gesamt)</div>
+                                            <div style={{fontSize:'9px',color:'#94a3b8'}}>akt. Monat: {cur.print}🖨 / {cur.digital}📲</div>
+                                        </div>
+                                        <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'10px'}}>
+                                            <div style={{flex:1,height:'10px',borderRadius:'5px',background:'#fee2e2',overflow:'hidden',position:'relative'}}>
+                                                <div style={{width:`${digitalPct}%`,height:'100%',background:'#059669',borderRadius:'5px',transition:'width 0.4s'}}/>
+                                            </div>
+                                            <span style={{fontSize:'16px',fontWeight:900,color:'#059669'}}>{digitalPct}%</span>
+                                        </div>
+                                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
+                                            <div style={{textAlign:'center',padding:'8px',borderRadius:'10px',background:'#fef2f2'}}>
+                                                <div style={{fontSize:'18px',fontWeight:900,color:'#dc2626',lineHeight:1}}>{totalPrint}</div>
+                                                <div style={{fontSize:'9px',color:'#94a3b8',marginTop:'3px'}}>🖨 Gedruckt</div>
+                                                <div style={{fontSize:'9px',color:'#dc2626',fontWeight:700,marginTop:'1px'}}>~{pagesPrinted} Seiten</div>
+                                            </div>
+                                            <div style={{textAlign:'center',padding:'8px',borderRadius:'10px',background:'#ecfdf5'}}>
+                                                <div style={{fontSize:'18px',fontWeight:900,color:'#059669',lineHeight:1}}>{totalDigital}</div>
+                                                <div style={{fontSize:'9px',color:'#94a3b8',marginTop:'3px'}}>📲 Digital</div>
+                                                <div style={{fontSize:'9px',color:'#059669',fontWeight:700,marginTop:'1px'}}>~{pagesSaved} gespart</div>
+                                            </div>
+                                            <div style={{textAlign:'center',padding:'8px',borderRadius:'10px',background:'#f0fdf4'}}>
+                                                <div style={{fontSize:'18px',fontWeight:900,color:'#16a34a',lineHeight:1}}>{pagesSaved}</div>
+                                                <div style={{fontSize:'9px',color:'#94a3b8',marginTop:'3px'}}>🌱 Blatt gespart</div>
+                                                <div style={{fontSize:'9px',color:'#16a34a',fontWeight:700,marginTop:'1px'}}>statt Papier</div>
+                                            </div>
+                                        </div>
+                                        <div style={{fontSize:'9px',color:'#cbd5e1',marginTop:'8px',textAlign:'center'}}>Schätzung: 7 Seiten/Angebot · echte Druckerseiten nicht messbar (OS-Dialog)</div>
+                                    </div>
+                                );
+                            })()}
                         </>)}
 
                         {/* ── ENTWICKLUNG 6 MONATE ── */}
@@ -8618,15 +8703,33 @@ function buildMidpointPath(ctx, fp) {
                 });
             } catch (e) { console.warn('saveOffer:', e); return false; }
         }
+        const OFFER_MAX_AGE_MS = 48 * 60 * 60 * 1000; // 48 Stunden – danach Auto-Löschung
+
         async function listOffers() {
             try {
                 const db = await openOfferDB();
-                return new Promise((resolve, reject) => {
+                const all = await new Promise((resolve, reject) => {
                     const tx = db.transaction(OFFER_STORE, 'readonly');
                     const req = tx.objectStore(OFFER_STORE).getAll();
-                    req.onsuccess = () => resolve((req.result || []).sort((a, b) => (b.ts || 0) - (a.ts || 0)));
+                    req.onsuccess = () => resolve(req.result || []);
                     req.onerror = () => reject(req.error);
                 });
+                // v48.1: Angebote älter als 48h automatisch entfernen (Speicher schonen).
+                const now = Date.now();
+                const fresh = [];
+                const expired = [];
+                for (const o of all) {
+                    if (o.ts && (now - o.ts) > OFFER_MAX_AGE_MS) expired.push(o.id);
+                    else fresh.push(o);
+                }
+                if (expired.length > 0) {
+                    try {
+                        const tx2 = db.transaction(OFFER_STORE, 'readwrite');
+                        const store = tx2.objectStore(OFFER_STORE);
+                        expired.forEach(id => store.delete(id));
+                    } catch(_) {}
+                }
+                return fresh.sort((a, b) => (b.ts || 0) - (a.ts || 0));
             } catch (e) { console.warn('listOffers:', e); return []; }
         }
         async function deleteOffer(id) {
@@ -8639,6 +8742,32 @@ function buildMidpointPath(ctx, fp) {
                     tx.onerror = () => reject(tx.error);
                 });
             } catch (e) { console.warn('deleteOffer:', e); return false; }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 📊 DRUCK-vs-DIGITAL-ZÄHLER (v48.2)
+        // Echtes Drucken (Seiten, Drucker) ist NICHT trackbar – das macht das OS.
+        // Aber WELCHEN Button der Agent drückt, wissen wir: "Drucken" vs "Digital teilen".
+        // Daraus schätzen wir Papierverbrauch (7 Seiten/Druck) und gespartes Papier.
+        // Speicherung lokal pro Monat in localStorage.
+        // ═══════════════════════════════════════════════════════════════
+        const PAGES_PER_PRINT = 7; // Ein Angebot = 7 Seiten
+        function trackOutputAction(kind) { // kind: 'print' | 'digital'
+            try {
+                const monthKey = new Date().toISOString().slice(0, 7); // "2026-06"
+                const raw = localStorage.getItem('ps_output_counters');
+                const data = raw ? JSON.parse(raw) : {};
+                if (!data[monthKey]) data[monthKey] = { print: 0, digital: 0 };
+                if (kind === 'print') data[monthKey].print += 1;
+                else if (kind === 'digital') data[monthKey].digital += 1;
+                localStorage.setItem('ps_output_counters', JSON.stringify(data));
+            } catch(_) {}
+        }
+        function getOutputCounters() {
+            try {
+                const raw = localStorage.getItem('ps_output_counters');
+                return raw ? JSON.parse(raw) : {};
+            } catch(_) { return {}; }
         }
 
 function App() {
@@ -9499,6 +9628,7 @@ const fileInputRef = useRef(null);
             const [offerSaving, setOfferSaving] = useState(false);
             const [showSaveDialog, setShowSaveDialog] = useState(false);
             const [saveDialogName, setSaveDialogName] = useState('');
+            const [loadedOfferId, setLoadedOfferId] = useState(null); // v48.1: für Löschung nach Fertigstellen
 
             const loadOffersList = useCallback(async () => {
                 const list = await listOffers();
@@ -9604,21 +9734,21 @@ const fileInputRef = useRef(null);
                     if (offer.offerLayoutMode) setOfferLayoutMode(offer.offerLayoutMode);
 
                     setShowSavedOffers(false);
+                    setLoadedOfferId(offer.id); // v48.1: merken, welches Angebot geladen wurde
                     triggerToast('✅ Angebot geladen: ' + (offer.label || 'Unbenannt'));
 
-                    // v51: Flacker-Fix beim Wiederherstellen.
-                    // Vorher: 300ms recalc + 600ms redraw + 1200ms recalc+redraw.
-                    // Jeder recalc loest INTERN bereits eine 4-fach gestaffelte
-                    // Redraw-Kaskade aus (0/150/400/750ms) -> in Summe ~10 sichtbare
-                    // Komplett-Neuzeichnungen ueber 2s = sichtbares Flackern.
-                    // Beim Laden aendert sich die Orientierung NICHT, daher reicht
-                    // EIN einziger recalc-Durchlauf. Die Inhalte bleiben dadurch
-                    // genauso vollstaendig, nur ohne das wiederholte Aufblitzen.
-                    if (window.__psLoadRecalcTimer) { clearTimeout(window.__psLoadRecalcTimer); }
-                    window.__psLoadRecalcTimer = setTimeout(() => {
+                    // v47.2: Robustere Redraw-Sequenz – Canvas braucht Zeit zum Mounten
+                    // 1. React rendert die neue View (300ms)
+                    // 2. Canvases neu skalieren (ps-canvas-recalc)
+                    // 3. Redraw mit korrekten Dimensionen (600ms + 1200ms)
+                    setTimeout(() => {
                         try { window.dispatchEvent(new Event('ps-canvas-recalc')); } catch(_) {}
-                        window.__psLoadRecalcTimer = null;
                     }, 300);
+                    setTimeout(() => { setRedrawCounter(r => r + 1); }, 600);
+                    setTimeout(() => {
+                        try { window.dispatchEvent(new Event('ps-canvas-recalc')); } catch(_) {}
+                        setRedrawCounter(r => r + 1);
+                    }, 1200);
                 } catch (e) { triggerToast('⚠️ Laden fehlgeschlagen: ' + e.message); }
             }, [triggerToast]);
 
@@ -10200,7 +10330,7 @@ const isOfferAreaNonEmpty = React.useCallback((k) => {
                 })();
             }, [triggerToast]);
 
-            const handlePrint = useCallback(() => { requestPrint(() => safePrint()); }, [requestPrint, safePrint]);
+            const handlePrint = useCallback(() => { trackOutputAction('print'); requestPrint(() => safePrint()); }, [requestPrint, safePrint]);
 
             
             const getAgentDisplayNameForUpload = () => {
@@ -10283,7 +10413,7 @@ const handleFinishOfferClick = () => {
                             // Direkt-Teilen nach langer Erzeugung fehl, kommt der "Jetzt teilen"-Dialog.
                             if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
                                 try {
-                                    await navigator.share({ title: `Ihr persönliches Angebot`, text: `Vielen Dank für Ihren Besuch! Anbei Ihr persönliches Angebot. Bei Fragen sind wir jederzeit für Sie da. 😊${LINK_EMPLOYEE ? '\n\nMit freundlichen Grüßen\n' + LINK_EMPLOYEE : ''}`, files: [pdfFile] });
+                                    trackOutputAction('digital'); await navigator.share({ title: `Ihr persönliches Angebot`, text: `Vielen Dank für Ihren Besuch! Anbei Ihr persönliches Angebot. Bei Fragen sind wir jederzeit für Sie da. 😊${LINK_EMPLOYEE ? '\n\nMit freundlichen Grüßen\n' + LINK_EMPLOYEE : ''}`, files: [pdfFile] });
                                     triggerToast('✅ PDF geteilt.');
                                     setTimeout(() => setShowReferralModal(true), 400);
                                     return;
@@ -10320,6 +10450,14 @@ const handleFinishOfferClick = () => {
 
             const handleFinishTypeSelection = (type) => {
                 setShowFinishTypeModal(false);
+
+                // v48.1: Nach Fertigstellen (egal ob Abschluss oder Angebot) das ggf. geladene
+                // Angebot aus dem lokalen Speicher entfernen – es ist fertig bearbeitet (+ als PDF
+                // gesichert), muss also nicht mehr in der Wiederherstellung liegen (Speicher schonen).
+                if (loadedOfferId) {
+                    deleteOffer(loadedOfferId).then(() => { loadOffersList(); }).catch(()=>{});
+                    setLoadedOfferId(null);
+                }
 
                 if (type === 'deal') {
                     // Abschluss-Pfad: Analytics nach Unterschrift (→ handleSignatureSave)
@@ -12431,26 +12569,8 @@ const bakeCanvasesIntoClone = (srcRoot, cloneRoot) => {
             img.className = (dc.className || '') + ' canvas-baked-image';
             img.style.cssText = (dc.getAttribute('style') || '') + ';' +
                 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:left top;pointer-events:none;touch-action:none;';
-            // FIX (v51): Backen MUSS immer aktiv bleiben -> Bild zuerst sicher einfuegen,
-            // Canvas-Entfernen ist ein davon getrennter, optionaler Schritt.
-            let inserted = false;
-            try {
-                if (dc.parentNode) {
-                    dc.parentNode.insertBefore(img, dc.nextSibling);
-                    inserted = true;
-                }
-            } catch(e){}
-            if (!inserted) {
-                // Fallback: Bild trotzdem einhaengen, damit die Handschrift NIE fehlt.
-                try { (dc.parentElement || cloneRoot).appendChild(img); inserted = true; } catch(e){}
-            }
-            if (inserted) {
-                // Canvas entfernen verhindert die doppelten Schrift-Linien (iPad/WebKit).
-                try { dc.parentNode && dc.parentNode.removeChild(dc); }
-                catch(e){ try { dc.style.display = 'none'; dc.style.visibility = 'hidden'; } catch(_){} }
-            }
-            // Wenn das Bild nicht eingefuegt werden konnte: Canvas bewusst NICHT
-            // entfernen -> lieber Doppelung als gar keine Schrift.
+            try { dc.style.visibility = 'hidden'; } catch(e){}
+            try { dc.parentNode && dc.parentNode.insertBefore(img, dc.nextSibling); } catch(e){}
         }
 
         // === METHODE 2: Key-basiert (für Kosten/Input Canvases mit data-cost-key) ===
@@ -12475,27 +12595,8 @@ const bakeCanvasesIntoClone = (srcRoot, cloneRoot) => {
             img.style.cssText =
                 'position:absolute;inset:0;width:100%;height:100%;' +
                 'object-fit:contain;pointer-events:none;touch-action:none;z-index:15;';
-            // FIX (v51): Backen MUSS immer passieren -> Bild zuerst sicher einfuegen.
-            let inserted = false;
-            try {
-                if (dc.parentNode) {
-                    dc.parentNode.insertBefore(img, dc.nextSibling);
-                    inserted = true;
-                }
-            } catch(e){}
-            if (!inserted) {
-                // Fallback: Bild direkt an Canvas-Position bzw. in cloneRoot haengen,
-                // damit die Handschrift NIE verloren geht.
-                try { (dc.parentElement || cloneRoot).appendChild(img); inserted = true; } catch(e){}
-            }
-            // Canvas entfernen ist ein SEPARATER, optionaler Schritt:
-            if (inserted) {
-                try { dc.parentNode && dc.parentNode.removeChild(dc); }
-                catch(e){ try { dc.style.display = 'none'; dc.style.visibility = 'hidden'; } catch(_){} }
-            } else {
-                // Bild konnte nicht eingefuegt werden -> Canvas auf KEINEN Fall
-                // entfernen, sonst waere die Schrift weg. Lieber Doppelung riskieren.
-            }
+            try { dc.style.visibility = 'hidden'; } catch(e){}
+            try { dc.parentNode && dc.parentNode.insertBefore(img, dc.nextSibling); } catch(e){}
         });
 
     } catch(e) {
@@ -12807,21 +12908,8 @@ const makeOfferPage = (sourceOfferEl, offerIndex, offerTitles) => {
                     im.src = re;
                     im.className = 'canvas-baked-image';
                     im.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:left top;pointer-events:none;z-index:10;';
-                    // FIX (v51): Bild zuerst sicher einfuegen, Canvas-Entfernen separat.
-                    let imInserted = false;
-                    try {
-                        if (cvs.parentNode) {
-                            cvs.parentNode.insertBefore(im, cvs.nextSibling);
-                            imInserted = true;
-                        }
-                    } catch(e){}
-                    if (!imInserted) {
-                        try { (cvs.parentElement || container).appendChild(im); imInserted = true; } catch(e){}
-                    }
-                    if (imInserted) {
-                        try { cvs.parentNode && cvs.parentNode.removeChild(cvs); }
-                        catch(e){ try { cvs.style.visibility = 'hidden'; } catch(_){} }
-                    }
+                    try { cvs.style.visibility = 'hidden'; } catch(e){}
+                    try { cvs.parentNode && cvs.parentNode.insertBefore(im, cvs.nextSibling); } catch(e){}
                 }
             }
         }
@@ -14330,7 +14418,7 @@ const handlePDFShare = async () => {
                     // zeigen wir den "Jetzt teilen"-Dialog (Button-Tap = neue Geste → klappt sicher).
                     if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
                         try {
-                            await navigator.share({ title: `Ihr persönliches Angebot`, text: `Vielen Dank für Ihren Besuch! Anbei Ihr persönliches Angebot. Bei Fragen sind wir jederzeit für Sie da. 😊${LINK_EMPLOYEE ? '\n\nMit freundlichen Grüßen\n' + LINK_EMPLOYEE : ''}`, files: [pdfFile] });
+                            trackOutputAction('digital'); await navigator.share({ title: `Ihr persönliches Angebot`, text: `Vielen Dank für Ihren Besuch! Anbei Ihr persönliches Angebot. Bei Fragen sind wir jederzeit für Sie da. 😊${LINK_EMPLOYEE ? '\n\nMit freundlichen Grüßen\n' + LINK_EMPLOYEE : ''}`, files: [pdfFile] });
                             triggerToast('✅ PDF geteilt.');
                             setTimeout(() => setShowReferralModal(true), 400);
                             return;
@@ -14376,6 +14464,7 @@ const handlePDFShare = async () => {
                                 <button onClick={() => {
                                     const f = pdfShareReady;
                                     setPdfShareReady(null);
+                                    trackOutputAction('digital'); // v48.2: digital geteilt
                                     const after = () => setTimeout(() => setShowReferralModal(true), 300);
                                     if (navigator.canShare && navigator.canShare({ files: [f] })) {
                                         // WICHTIG: share() synchron im Tap aufrufen → iOS zeigt den Teilen-Dialog sicher
@@ -14550,7 +14639,7 @@ const handlePDFShare = async () => {
                                 <div style={{padding:'18px 20px 14px',borderBottom:'1.5px solid #e2e8f0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                                     <div>
                                         <div style={{fontSize:'17px',fontWeight:900,color:'#1e293b'}}>📋 Gespeicherte Angebote</div>
-                                        <div style={{fontSize:'11px',color:'#94a3b8',marginTop:'2px'}}>{savedOffersList.length} Angebot{savedOffersList.length!==1?'e':''} auf diesem Gerät</div>
+                                        <div style={{fontSize:'11px',color:'#94a3b8',marginTop:'2px'}}>{savedOffersList.length} Angebot{savedOffersList.length!==1?'e':''} · bleibt 48 Std. abrufbar</div>
                                     </div>
                                     <button onClick={()=>setShowSavedOffers(false)} style={{width:'32px',height:'32px',borderRadius:'50%',background:'#f1f5f9',border:'none',cursor:'pointer',fontSize:'16px',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
                                 </div>
@@ -14574,6 +14663,12 @@ const handlePDFShare = async () => {
                                                     {offer.customerSignature && <span style={{color:'#10b981'}}>✍️ Signiert</span>}
                                                     {offer.canvasImages && Object.values(offer.canvasImages).some(v=>v) && <span style={{color:'#8b5cf6'}}>🖼 Bilder</span>}
                                                     {offer.displayLanguage && offer.displayLanguage !== 'de' && <span style={{color:'#f59e0b'}}>🌐 {offer.displayLanguage.toUpperCase()}</span>}
+                                                    {(() => {
+                                                        const remMs = (48*60*60*1000) - (Date.now() - offer.ts);
+                                                        const remH = Math.max(0, Math.floor(remMs / (60*60*1000)));
+                                                        const col = remH < 6 ? '#ef4444' : '#94a3b8';
+                                                        return <span style={{color:col}}>⏳ noch {remH} Std.</span>;
+                                                    })()}
                                                 </div>
                                             </div>
                                             <button onClick={()=>handleLoadOffer(offer)} style={{padding:'8px 14px',borderRadius:'9px',border:'none',background:'#2563eb',color:'#fff',fontWeight:800,fontSize:'12px',cursor:'pointer',flexShrink:0}}>Laden</button>
@@ -14601,7 +14696,7 @@ const handlePDFShare = async () => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v47.9</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v48.2</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button>
                     
                     <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
@@ -16073,7 +16168,7 @@ const handlePDFShare = async () => {
                             <button onClick={()=>{loadOffersList();setShowSavedOffers(true);}} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-blue-500 hover:bg-blue-50 transition-colors" title="📋 Gespeicherte Angebote"><Icon d={ICONS.List} size={18}/></button>
                             <button onClick={() => { if (LINK_EMPLOYEE === 'Diego da Silva') { handleSkipToOffer('Übersprungen (Admin)'); } else { setShowSkipReasonModal(true); } }} className="px-4 py-2 text-slate-500 font-bold text-xs hover:bg-slate-100 rounded-lg transition-colors">Überspringen</button>
                             <button onClick={() => { if(isFormValid){ setView('offer'); setViewOfferCounter(c => c + 1); } }} className={`px-6 py-2 rounded-lg font-bold shadow-lg text-sm flex items-center gap-2 transition-all ${isFormValid ? 'bg-blue-600 text-white hover:bg-blue-700 cursor-pointer' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`} title={isFormValid ? "Weiter zum Angebot" : "Bitte Pflichtfelder ausfüllen (Kundentyp, Segment, Anbieter)"}>Zum Angebot <Icon d={ICONS.ArrowRight} size={18} /></button>
-                        </div></>) : (<div className="w-full flex justify-between items-center"><div className="flex items-center gap-3"><div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm"><button onClick={() => setInputMode('pen')} className={`p-2 rounded-md transition-colors ${inputMode === 'pen' ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`} title="Stift-Modus (Stylus Only)"><Icon d={ICONS.Pen} size={16} /></button><button onClick={() => setInputMode('keyboard')} className={`p-2 rounded-md transition-colors ${inputMode === 'keyboard' ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`} title="Tastatur-Modus"><Icon d={ICONS.Keyboard} size={16} /></button></div>{inputMode === 'pen' && (<div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm animate-in items-center relative z-50">{renderPenToolButtons()}{(tool === 'pen' || tool === 'fountain' || tool === 'ballpen' || tool === 'highlighter') && (<div className="opacity-slider-group flex items-center gap-2 bg-slate-50 rounded border border-slate-200 p-1.5 ml-2"><Icon d={ICONS.Sun} size={16} className="text-slate-400"/><input type="range" min="10" max="100" value={Math.round(opacity * 100)} onChange={(e) => setOpacity(parseInt(e.target.value) / 100)} className="w-20 h-1 appearance-none bg-blue-200 rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-lg" title={`Deckkraft: ${Math.round(opacity * 100)}%`}/></div>)}<div className="toolbar-divider w-px h-6 bg-slate-200 mx-1"></div><div className="color-picker-group relative"><button onClick={() => setShowColorPicker(!showColorPicker)} className="w-8 h-8 rounded-full border shadow-sm flex items-center justify-center ring-offset-2 focus:ring-2" style={{ backgroundColor: color }}><Icon d={ICONS.Palette} size={12} className="text-white mix-blend-difference" /></button>{showColorPicker && (<div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-white p-3 rounded-xl shadow-2xl border border-slate-200 grid grid-cols-4 gap-2 w-[180px] z-[100]"><div className="col-span-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center mb-1">Farbe wählen</div>{COLORS.map(c => <button key={c.id} onClick={() => { setColor(c.value); setShowColorPicker(false); if(c.id==='white') triggerToast('Weiß: auf hellem Canvas kaum sichtbar!'); }} className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${color === c.value ? 'border-slate-400 shadow-inner scale-110' : 'border-transparent'}`} style={{ backgroundColor: c.value }} title={c.label} />)}</div>)}</div></div>)}{inputMode === 'keyboard' && (<div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm animate-in items-center relative z-50"><div className="flex bg-slate-50 rounded border border-slate-200 p-0.5 gap-0.5"><button onClick={() => setTextSize('small')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'small' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'11px'}}>S</button><button onClick={() => setTextSize('medium')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'medium' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'14px'}}>M</button><button onClick={() => setTextSize('large')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'large' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'18px'}}>L</button></div><div className="w-px h-6 bg-slate-200 mx-1"></div><div className="flex gap-1"><button onClick={() => setTextStyle(p => ({...p, bold: !p.bold}))} className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${textStyle.bold ? 'bg-blue-100 text-blue-600 ring-1 ring-blue-200' : 'text-slate-500 hover:bg-slate-100'}`} title="Fett" style={{fontSize:'16px',fontWeight:900}}>F</button><button onClick={() => setTextStyle(p => ({...p, italic: !p.italic}))} className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${textStyle.italic ? 'bg-blue-100 text-blue-600 ring-1 ring-blue-200' : 'text-slate-500 hover:bg-slate-100'}`} title="Kursiv" style={{fontStyle:'italic',fontFamily:'Georgia,serif',fontSize:'15px',fontWeight:600}}>K</button></div></div>)}</div><div className="flex items-center gap-4"><button onClick={handleFileAdd} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-slate-500 hover:bg-slate-100 hover:text-blue-600 transition-colors" title="Datei hinzufügen (Kamera / Ordner)"><Icon d={ICONS.Folder} size={18}/></button><div className="relative"><button onClick={() => setShowLanguageDropdown(p => !p)} className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-100 transition-colors" title={`Sprache: ${SORTED_LANGUAGES.find(l => l.code === displayLanguage)?.name || 'Deutsch'}`}><div className="relative flex items-center justify-center"><Icon d={ICONS.Globe} size={18} className="text-slate-500"/>{displayLanguage !== 'de' && (<span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] font-black text-white mix-blend-difference leading-none pointer-events-none">{displayLanguage.toUpperCase()}</span>)}</div></button>{showLanguageDropdown && (<div className="absolute bottom-full right-0 mb-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden z-50 animate-in fade-in"><div className="p-2 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase">Sprache wählen</div>{SORTED_LANGUAGES.map(lang => (<button key={lang.code} onClick={() => { setDisplayLanguage(lang.code); setShowLanguageDropdown(false); }} className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center gap-2 ${displayLanguage === lang.code ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-700 hover:bg-slate-100'}`}>{lang.name}{displayLanguage === lang.code && <Icon d={ICONS.CheckCircle} size={14} className="ml-auto"/>}</button>))}</div>)}</div><div className="flex items-center">{showShareButton && view !== 'offer' && (<button onClick={handlePDFShare} className="p-2 bg-white border border-slate-200 rounded-full shadow-sm hover:bg-slate-100 text-blue-600 transition-colors mr-2 flex items-center justify-center w-10 h-10" title="Angebot teilen (System)"><Icon d={ICONS.Share} size={20} className="w-5 h-5" /></button>)}<a href="https://jefferson990.github.io/Freunde-Werben-Freunde/" target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-slate-500 hover:bg-slate-100 hover:text-blue-600 transition-colors mr-2 flex items-center justify-center" title="Freunde werben (Link)"><Icon d={ICONS.Users} size={18}/></a><button onClick={openOneDriveLink} className="p-2 bg-slate-50 text-slate-500 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-100 hover:text-blue-600 transition-colors mr-2 flex items-center justify-center" title="Aktionsmappe öffnen"><Icon d={ICONS.Flyer} size={18}/></button>
+                        </div></>) : (<div className="w-full flex justify-between items-center"><div className="flex items-center gap-3"><div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm"><button onClick={() => setInputMode('pen')} className={`p-2 rounded-md transition-colors ${inputMode === 'pen' ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`} title="Stift-Modus (Stylus Only)"><Icon d={ICONS.Pen} size={16} /></button><button onClick={() => setInputMode('keyboard')} className={`p-2 rounded-md transition-colors ${inputMode === 'keyboard' ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`} title="Tastatur-Modus"><Icon d={ICONS.Keyboard} size={16} /></button></div>{inputMode === 'pen' && (<div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm animate-in items-center relative z-50">{renderPenToolButtons()}{(tool === 'pen' || tool === 'fountain' || tool === 'ballpen' || tool === 'highlighter') && (<div className="opacity-slider-group flex items-center gap-2 bg-slate-50 rounded border border-slate-200 p-1.5 ml-2"><Icon d={ICONS.Sun} size={16} className="text-slate-400"/><input type="range" min="10" max="100" value={Math.round(opacity * 100)} onChange={(e) => setOpacity(parseInt(e.target.value) / 100)} className="w-20 h-1 appearance-none bg-blue-200 rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-lg" title={`Deckkraft: ${Math.round(opacity * 100)}%`}/></div>)}<div className="toolbar-divider w-px h-6 bg-slate-200 mx-1"></div><div className="color-picker-group relative"><button onClick={() => setShowColorPicker(!showColorPicker)} className="w-8 h-8 rounded-full border shadow-sm flex items-center justify-center ring-offset-2 focus:ring-2" style={{ backgroundColor: color }}><Icon d={ICONS.Palette} size={12} className="text-white mix-blend-difference" /></button>{showColorPicker && (<div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-white p-3 rounded-xl shadow-2xl border border-slate-200 grid grid-cols-4 gap-2 w-[180px] z-[100]"><div className="col-span-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center mb-1">Farbe wählen</div>{COLORS.map(c => <button key={c.id} onClick={() => { setColor(c.value); setShowColorPicker(false); if(c.id==='white') triggerToast('Weiß: auf hellem Canvas kaum sichtbar!'); }} className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${color === c.value ? 'border-slate-400 shadow-inner scale-110' : 'border-transparent'}`} style={{ backgroundColor: c.value }} title={c.label} />)}</div>)}</div></div>)}{inputMode === 'keyboard' && (<div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm animate-in items-center relative z-50"><div className="flex bg-slate-50 rounded border border-slate-200 p-0.5 gap-0.5"><button onClick={() => setTextSize('small')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'small' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'11px'}}>S</button><button onClick={() => setTextSize('medium')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'medium' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'14px'}}>M</button><button onClick={() => setTextSize('large')} className={`w-8 h-8 flex items-center justify-center rounded font-bold ${textSize === 'large' ? 'bg-white shadow text-blue-600 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-200'}`} style={{fontSize:'18px'}}>L</button></div><div className="w-px h-6 bg-slate-200 mx-1"></div><div className="flex gap-1"><button onClick={() => setTextStyle(p => ({...p, bold: !p.bold}))} className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${textStyle.bold ? 'bg-blue-100 text-blue-600 ring-1 ring-blue-200' : 'text-slate-500 hover:bg-slate-100'}`} title="Fett" style={{fontSize:'16px',fontWeight:900}}>F</button><button onClick={() => setTextStyle(p => ({...p, italic: !p.italic}))} className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${textStyle.italic ? 'bg-blue-100 text-blue-600 ring-1 ring-blue-200' : 'text-slate-500 hover:bg-slate-100'}`} title="Kursiv" style={{fontStyle:'italic',fontFamily:'Georgia,serif',fontSize:'15px',fontWeight:600}}>K</button></div></div>)}</div><div className="footer-action-icons flex items-center gap-4"><button onClick={handleFileAdd} className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-slate-500 hover:bg-slate-100 hover:text-blue-600 transition-colors" title="Datei hinzufügen (Kamera / Ordner)"><Icon d={ICONS.Folder} size={18}/></button><div className="relative"><button onClick={() => setShowLanguageDropdown(p => !p)} className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-100 transition-colors" title={`Sprache: ${SORTED_LANGUAGES.find(l => l.code === displayLanguage)?.name || 'Deutsch'}`}><div className="relative flex items-center justify-center"><Icon d={ICONS.Globe} size={18} className="text-slate-500"/>{displayLanguage !== 'de' && (<span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] font-black text-white mix-blend-difference leading-none pointer-events-none">{displayLanguage.toUpperCase()}</span>)}</div></button>{showLanguageDropdown && (<div className="absolute bottom-full right-0 mb-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden z-50 animate-in fade-in"><div className="p-2 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase">Sprache wählen</div>{SORTED_LANGUAGES.map(lang => (<button key={lang.code} onClick={() => { setDisplayLanguage(lang.code); setShowLanguageDropdown(false); }} className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center gap-2 ${displayLanguage === lang.code ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-700 hover:bg-slate-100'}`}>{lang.name}{displayLanguage === lang.code && <Icon d={ICONS.CheckCircle} size={14} className="ml-auto"/>}</button>))}</div>)}</div><div className="flex items-center">{showShareButton && view !== 'offer' && (<button onClick={handlePDFShare} className="p-2 bg-white border border-slate-200 rounded-full shadow-sm hover:bg-slate-100 text-blue-600 transition-colors mr-2 flex items-center justify-center w-10 h-10" title="Angebot teilen (System)"><Icon d={ICONS.Share} size={20} className="w-5 h-5" /></button>)}<a href="https://jefferson990.github.io/Freunde-Werben-Freunde/" target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm text-slate-500 hover:bg-slate-100 hover:text-blue-600 transition-colors mr-2 flex items-center justify-center" title="Freunde werben (Link)"><Icon d={ICONS.Users} size={18}/></a><button onClick={openOneDriveLink} className="p-2 bg-slate-50 text-slate-500 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-100 hover:text-blue-600 transition-colors mr-2 flex items-center justify-center" title="Aktionsmappe öffnen"><Icon d={ICONS.Flyer} size={18}/></button>
                                 {/* ── Gutschrift-Rechner Icon-Button ── */}
                                 {(()=>{
                                     const gut2 = parseFloat(gutschriftBetrag.replace(',','.')) || 0;
