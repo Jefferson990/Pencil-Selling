@@ -9438,6 +9438,27 @@ const handleOpenStats = () => { setShowPinLock(true); };
                 };
             }, [printRecommendationsEnabled]);
 
+            // ═══════════════════════════════════════════════════════════════════
+            // v56 AGENT-NAME-GARANTIE (Ronny-Bug endgültig)
+            // ───────────────────────────────────────────────────────────────────
+            // Problem: Der Agent-Name kam nur als useState-Initialwert ins Feld.
+            // Wenn textData später überschrieben wurde (Autosave-Restore beim Start,
+            // Angebot laden, Clear), konnte das Feld leer bleiben → "mal da, mal nicht".
+            // Lösung: Sobald ein Link-Agent vorhanden ist (?agent=... oder gemerkt),
+            // GARANTIERT diesen Namen ins Feld setzen, falls es leer ist oder abweicht.
+            // Läuft bei jedem Render-relevanten Wechsel – idempotent (setzt nur bei Bedarf).
+            React.useEffect(() => {
+                try {
+                    if (!LINK_EMPLOYEE) return; // ohne Link-Agent nichts erzwingen
+                    const cur = (textData && textData.AgentName) ? String(textData.AgentName).trim() : '';
+                    // Nur setzen, wenn das Feld LEER ist → manuelle Eingaben (z.B. Vertretung)
+                    // bleiben erhalten, aber der häufige Fall "Feld leer trotz Link" ist gelöst.
+                    if (cur === '') {
+                        setTextData(prev => ({ ...prev, AgentName: LINK_EMPLOYEE }));
+                    }
+                } catch(_) {}
+            }, [textData.AgentName]);
+
             // ── Firebase Config (gleich wie Aktionsmappe) ──
             const AM_FB_CONFIG = {
                 apiKey:"AIzaSyCjYCn-X694K1xoUULAin_zDta1r-dSh7Y",
