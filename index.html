@@ -3960,8 +3960,9 @@ body.pdf-share-mode .email-mode-buttons { display: none !important; }
 <style id="overlay-print-position-hotfix-v55">
 /* v55: Druck/PDF-Hardfix für Verkaufsmappe-/Bundle-Overlay
    NICHT mehr per Flex/Margin-Auto positionieren, sondern absolut in der Angebotskarte.
-   --ps-overlay-print-top kann bei Bedarf schnell angepasst werden: 18% = gleiche sichtbare Höhe wie vorher, aber ohne transform/Blass-Effekt. */
-:root { --ps-overlay-print-top: 18%; }
+   --ps-overlay-print-top kann bei Bedarf schnell angepasst werden.
+   v56: 12% statt 18%, da Bundle-Inhalt jetzt 1,4× größer gedruckt wird. */
+:root { --ps-overlay-print-top: 12%; }
 .offer-overlay-outer,
 .offer-overlay-outer *,
 .offer-html-overlay-wrap,
@@ -4122,7 +4123,22 @@ body.pdf-share-mode .offer-canvas-container:has(.offer-html-overlay-wrap) .offer
                 const params = new URLSearchParams(window.location.search || '');
                 const raw = params.get('agent') || params.get('m') || '';
                 const decoded = decodeURIComponent(String(raw).replace(/\+/g, ' ')).trim();
-                return (decoded || '').replace(/[^a-zA-Z0-9ÄÖÜäöüß .,_-]/g, '').trim() || '';
+                const cleaned = (decoded || '').replace(/[^a-zA-Z0-9ÄÖÜäöüß .,_-]/g, '').trim();
+                // v56 FIX (Ronny-Bug): Agent-Name aus dem Link merken.
+                // Problem: Öffnet der Mitarbeiter die Seite OHNE ?agent=... (Lesezeichen
+                // der nackten URL, aus dem Verlauf), war "Persönlicher Agent" leer.
+                // Lösung: Einmal aus dem Link gelesen → in localStorage sichern und beim
+                // nächsten Mal ohne Parameter von dort wiederherstellen.
+                if (cleaned) {
+                    try { localStorage.setItem('ps_link_agent', cleaned); } catch(_) {}
+                    return cleaned;
+                }
+                // Kein Link-Parameter → zuletzt gemerkten Agent nehmen (falls vorhanden)
+                try {
+                    const saved = (localStorage.getItem('ps_link_agent') || '').trim();
+                    if (saved) return saved;
+                } catch(_) {}
+                return '';
             } catch (e) {
                 return '';
             }
@@ -9155,27 +9171,32 @@ const toolRef = useRef('pen');
                     }
                 } catch(_) {}
 
-                // Prüft, ob ein Canvas zu einem Key tatsächlich Pixel zeigt
+                // Prüft, ob ein Canvas zu einem Key tatsächlich Pixel zeigt.
+                // Plattform-robust: willReadFrequently (iPad/Android Performance),
+                // und bei getImageData-Fehler (tainted canvas durch Bilder/CORS) ein
+                // sicherer Fallback auf reine Größen-/Bereitschaftsprüfung.
                 const canvasShowsInk = (key) => {
+                    let el = null;
                     try {
-                        // Sichtbares Canvas über vorhandene Attribute finden:
-                        // Offer/Kosten-Canvas tragen data-stroke-key, Situations-Canvas data-sit-key.
-                        const el = document.querySelector(
+                        el = document.querySelector(
                             'canvas[data-stroke-key="' + key + '"], canvas[data-sit-key="' + key + '"], canvas[data-cost-key="' + key + '"]'
                         );
-                        if (!el || el.width < 2 || el.height < 2) return false;
-                        const ctx = el.getContext('2d');
-                        // Stichprobe statt voller Scan (Performance): zentraler Streifen
+                    } catch(_) { el = null; }
+                    if (!el || el.width < 2 || el.height < 2) return false;
+                    try {
+                        // willReadFrequently: verhindert iPad/Android-Performance-Einbruch beim Lesen
+                        const ctx = el.getContext('2d', { willReadFrequently: true }) || el.getContext('2d');
                         const w = el.width, h = el.height;
                         const data = ctx.getImageData(0, 0, w, h).data;
-                        // Schritt durch jeden 40. Pixel → schnell genug, findet jede Linie
                         for (let i = 3; i < data.length; i += 160) {
                             if (data[i] > 8) return true; // Alpha > 8 = Tinte
                         }
                         return false;
                     } catch(_) {
-                        // getImageData kann bei 0×0 / nicht gemountet werfen → noch nicht bereit
-                        return false;
+                        // getImageData verboten (tainted) oder Canvas nicht bereit.
+                        // Fallback: Canvas hat gültige Größe → als "bereit" werten, damit der
+                        // Loop nicht ewig läuft. Der Redraw wird trotzdem ausgelöst.
+                        return (el.width >= 2 && el.height >= 2);
                     }
                 };
 
@@ -9925,6 +9946,7 @@ const fileInputRef = useRef(null);
                         isCustomProvider,
                         segment,
                         canvasImages: { ...canvasImages },
+                        canvasHtml: JSON.parse(JSON.stringify(canvasHtml)), // v56: Bundle-Overlay (z.B. Galaxy Tab) mitspeichern
                         imageTransform: JSON.parse(JSON.stringify(imageTransform)),
                         offerData: JSON.parse(JSON.stringify(offerData)),
                         costState: { ...costState },
@@ -9960,7 +9982,7 @@ const fileInputRef = useRef(null);
                 setShowSaveDialog(false);
                 setShowOverwriteDialog(false);
                 setSaveDialogName('');
-            }, [textData, drawnStrokes, emailText, beratungsId, view, customerType, providerSelect, customProvider, isCustomProvider, segment, canvasImages, imageTransform, offerData, costState, packagePrices, showSecondYear, gutschriftBetrag, showSavingsBlock, showCostSection, checkedTechs, techUebernommen, netBundleMatched, wlanSnapshot, wlanRecommendation, speedRecommendation, followUpsByKey, customerSignature, displayLanguage, translatedText, staticTranslations, sitLayoutMode, offerLayoutMode, triggerToast, loadOffersList]);
+            }, [textData, drawnStrokes, emailText, beratungsId, view, customerType, providerSelect, customProvider, isCustomProvider, segment, canvasImages, canvasHtml, imageTransform, offerData, costState, packagePrices, showSecondYear, gutschriftBetrag, showSavingsBlock, showCostSection, checkedTechs, techUebernommen, netBundleMatched, wlanSnapshot, wlanRecommendation, speedRecommendation, followUpsByKey, customerSignature, displayLanguage, translatedText, staticTranslations, sitLayoutMode, offerLayoutMode, triggerToast, loadOffersList]);
 
             // v48.3: Speichern-Button gedrückt → prüfen ob diese Session schon gespeichert wurde
             const handleSaveButtonClick = useCallback(() => {
@@ -9979,7 +10001,15 @@ const fileInputRef = useRef(null);
             const handleLoadOffer = useCallback((offer) => {
                 try {
                     // ── KOMPLETTER Zustand wiederherstellen (v47.2) ──
-                    if (offer.textData) setTextData(offer.textData);
+                    if (offer.textData) {
+                        // v56 FIX: Agent-Name aus dem Link (?agent=...) hat IMMER Vorrang.
+                        // Sonst konnte ein gespeichertes Angebot mit leerem AgentName den
+                        // Namen überschreiben → "Persönlicher Agent" war mal da, mal leer (Ronny-Bug).
+                        const restored = { ...offer.textData };
+                        if (LINK_EMPLOYEE) restored.AgentName = LINK_EMPLOYEE;
+                        else if (!restored.AgentName) restored.AgentName = offer.textData.AgentName || '';
+                        setTextData(restored);
+                    }
                     if (offer.drawnStrokes) setDrawnStrokes(offer.drawnStrokes);
                     if (offer.emailText != null) setEmailText(offer.emailText);
                     if (offer.beratungsId != null) setBeratungsId(offer.beratungsId);
@@ -9990,6 +10020,15 @@ const fileInputRef = useRef(null);
                     if (offer.isCustomProvider != null) setIsCustomProvider(offer.isCustomProvider);
                     if (offer.segment != null) setSegment(offer.segment);
                     if (offer.canvasImages) setCanvasImages(offer.canvasImages);
+                    if (offer.canvasHtml) {
+                        // v56: Bundle-Overlay (z.B. Galaxy Tab) wiederherstellen + neu rendern
+                        setCanvasHtml(offer.canvasHtml);
+                        setBundleInsertCounter(prev => ({
+                            offer1: (prev.offer1||0) + (offer.canvasHtml.offer1 ? 1 : 0),
+                            offer2: (prev.offer2||0) + (offer.canvasHtml.offer2 ? 1 : 0),
+                            offer3: (prev.offer3||0) + (offer.canvasHtml.offer3 ? 1 : 0),
+                        }));
+                    }
                     if (offer.imageTransform) setImageTransform(offer.imageTransform);
                     if (offer.offerData) setOfferData(offer.offerData);
                     if (offer.costState) setCostState(offer.costState);
@@ -10134,7 +10173,12 @@ const fileInputRef = useRef(null);
             const handleRestoreAutosave = () => {
                 try {
                     const snap = JSON.parse(localStorage.getItem(AUTOSAVE_KEY)||'{}');
-                    if (snap.textData) setTextData(snap.textData);
+                    if (snap.textData) {
+                        // v56 FIX: Agent-Name aus dem Link hat IMMER Vorrang (Ronny-Bug).
+                        const restored = { ...snap.textData };
+                        if (LINK_EMPLOYEE) restored.AgentName = LINK_EMPLOYEE;
+                        setTextData(restored);
+                    }
                     if (snap.drawnStrokes) setDrawnStrokes(snap.drawnStrokes);
                     if (snap.customerType !== undefined) setCustomerType(snap.customerType);
                     if (snap.segment !== undefined) { setSegment(snap.segment); if (snap.segment) setSegmentTouched(true); }
@@ -12232,13 +12276,15 @@ const SHARE_OFFSET_Y_PX  = 0; // Share: keep at 0 (prevents page-cut) // Share: 
                         });
                     }catch(e){}
 
-                    // ===== Übernommenes Angebot im Druck: 35% kleiner + Bilder nebeneinander =====
+                    // ===== v56: Übernommenes Angebot/Bundle im Druck GRÖSSER (1,4×) =====
+                    // Diego: Overlay ist eh fix → groß drucken, Seite füllen statt klein oben.
                     try{
+                        const PS_PRINT_SCALE = 1.4; // Stellschraube
                         doc.querySelectorAll('.offer-overlay-outer').forEach(outer=>{
                             outer.style.position = 'absolute';
                             outer.style.left = '0';
                             outer.style.right = '0';
-                            outer.style.top = '58%';
+                            outer.style.top = '12%';      // v56: höher, da Inhalt nun größer ist
                             outer.style.width = '100%';
                             outer.style.height = 'auto';
                             outer.style.minHeight = '0';
@@ -12253,9 +12299,9 @@ const SHARE_OFFSET_Y_PX  = 0; // Share: keep at 0 (prevents page-cut) // Share: 
                                     const t = wrap.style.transform || '';
                                     const m = t.match(/scale\(([\d.]+)\)/);
                                     const screenScale = m ? parseFloat(m[1]) : 1;
-                                    const pdfScale = screenScale; // v51: keine Zusatz-Verkleinerung mehr, sonst wirkt das Overlay blass/zu klein
+                                    const pdfScale = screenScale * PS_PRINT_SCALE; // v56: 1,4× größer
                                     wrap.style.transform = `scale(${pdfScale})`;
-                                    wrap.style.transformOrigin = 'top left';
+                                    wrap.style.transformOrigin = 'top center';
                                     wrap.style.opacity = '1';
                                     wrap.style.filter = 'none';
                                     wrap.style.webkitFilter = 'none';
@@ -12264,41 +12310,14 @@ const SHARE_OFFSET_Y_PX  = 0; // Share: keep at 0 (prevents page-cut) // Share: 
                                     wrap.style.background = '#ffffff';
                                     try { wrap.querySelectorAll('*').forEach(n => { n.style.opacity = '1'; n.style.filter = 'none'; n.style.webkitFilter = 'none'; n.style.mixBlendMode = 'normal'; n.style.backgroundBlendMode = 'normal'; n.style.webkitPrintColorAdjust = 'exact'; n.style.printColorAdjust = 'exact'; }); } catch(_){ }
                                     const curH = parseInt(outer.style.height) || 600;
-                                    const newH = curH; // v51: Höhe nicht künstlich schrumpfen
+                                    const newH = curH;
                                     outer.style.height = newH + 'px';
                                     outer.style.maxHeight = newH + 'px';
                                     try {
                                         const container = outer.closest('.offer-canvas-container');
                                         if (container) container.style.minHeight = '0';
                                     } catch(_){}
-                                    // Bilder kleiner + Container nebeneinander (inline-styles für html2canvas)
-                                    try {
-                                        wrap.querySelectorAll('img').forEach(img => {
-                                            img.style.maxHeight = '90px';
-                                            img.style.maxWidth = '110px';
-                                            img.style.width = 'auto';
-                                            img.style.height = 'auto';
-                                            img.style.objectFit = 'contain';
-                                            img.style.display = 'inline-block';
-                                        });
-                                        // Bild-Container nebeneinander: Parent-Div von img auf inline-flex
-                                        wrap.querySelectorAll('img').forEach(img => {
-                                            const parent = img.parentElement;
-                                            if (parent) {
-                                                parent.style.display = 'inline-flex';
-                                                parent.style.width = 'auto';
-                                                parent.style.maxWidth = '48%';
-                                                // Großeltern-Container auf flex-row
-                                                const grandparent = parent.parentElement;
-                                                if (grandparent && grandparent !== wrap) {
-                                                    grandparent.style.display = 'flex';
-                                                    grandparent.style.flexDirection = 'row';
-                                                    grandparent.style.flexWrap = 'wrap';
-                                                    grandparent.style.gap = '6px';
-                                                }
-                                            }
-                                        });
-                                    } catch(_){}
+                                    // v56: Bilder NICHT mehr verkleinern – sie sollen groß mitwachsen
                                 }
                             } catch(_){}
                             try {
@@ -13314,7 +13333,7 @@ const makeOfferPage = (sourceOfferEl, offerIndex, offerTitles) => {
             overlayParent.style.setProperty('position', 'absolute', 'important');
             overlayParent.style.setProperty('left', '0', 'important');
             overlayParent.style.setProperty('right', '0', 'important');
-            overlayParent.style.setProperty('top', '18%', 'important');
+            overlayParent.style.setProperty('top', '12%', 'important'); // v56: höher, da Inhalt 1,4× größer
             overlayParent.style.setProperty('width', '100%', 'important');
             overlayParent.style.setProperty('height', 'auto', 'important');
             overlayParent.style.setProperty('min-height', '0', 'important');
@@ -13335,7 +13354,24 @@ const makeOfferPage = (sourceOfferEl, offerIndex, offerTitles) => {
             try { if (overlayParent.parentElement === container) container.appendChild(overlayParent); } catch(_) {}
         }
         try { container.querySelectorAll('.canvas-lines, div.relative[class*="flex-1"]').forEach(n => { n.style.setProperty('display', 'none', 'important'); n.style.setProperty('visibility', 'hidden', 'important'); }); } catch(_) {}
-        // Originale Fit-Skalierung des Wraps bleibt erhalten. Nur Sichtbarkeit/Farbkraft erzwingen.
+        // v56: Bundle-Inhalt im PDF GRÖSSER (1,4×) – Diego: Overlay ist fix, also Seite füllen.
+        // Originale Fit-Skalierung als Basis nehmen und mit 1,4 multiplizieren.
+        try {
+            const PS_PRINT_SCALE = 1.4;
+            const tw = String(htmlOverlayWrap.style.transform || '');
+            const mw = tw.match(/scale\(([\d.]+)\)/);
+            const baseScale = mw ? parseFloat(mw[1]) : 1;
+            const newScale = baseScale * PS_PRINT_SCALE;
+            if (mw) {
+                htmlOverlayWrap.style.setProperty('transform', tw.replace(/scale\([\d.]+\)/, 'scale(' + newScale + ')'), 'important');
+            } else {
+                htmlOverlayWrap.style.setProperty('transform', 'scale(' + newScale + ')', 'important');
+            }
+            htmlOverlayWrap.style.setProperty('transform-origin', 'top center', 'important');
+            // Position etwas höher, da der Inhalt jetzt größer ist
+            if (overlayParent) overlayParent.style.setProperty('top', '12%', 'important');
+        } catch(_) {}
+        // Sichtbarkeit/Farbkraft erzwingen.
         htmlOverlayWrap.style.setProperty('opacity', '1', 'important');
         htmlOverlayWrap.style.setProperty('pointer-events', 'none', 'important');
         htmlOverlayWrap.style.setProperty('user-select', 'none', 'important');
@@ -16694,6 +16730,20 @@ const handlePDFShare = async () => {
                             overlayWrap.style.setProperty('filter', 'none', 'important');
                             overlayWrap.style.setProperty('-webkit-filter', 'none', 'important');
                             overlayWrap.style.setProperty('mix-blend-mode', 'normal', 'important');
+                            // v56: Overlay GRÖSSER drucken (1,4×) – vorhandenen scale multiplizieren
+                            try {
+                                const PS_PRINT_SCALE = 1.4;
+                                const tw = String(overlayWrap.style.transform || '');
+                                const mw = tw.match(/scale\(([\d.]+)\)/);
+                                const baseScale = mw ? parseFloat(mw[1]) : 1;
+                                const newScale = baseScale * PS_PRINT_SCALE;
+                                if (mw) {
+                                    overlayWrap.style.setProperty('transform', tw.replace(/scale\([\d.]+\)/, 'scale(' + newScale + ')'), 'important');
+                                } else {
+                                    overlayWrap.style.setProperty('transform', 'scale(' + newScale + ')', 'important');
+                                }
+                                overlayWrap.style.setProperty('transform-origin', 'top center', 'important');
+                            } catch(_) {}
                             try { overlayWrap.querySelectorAll('*').forEach(n => {
                                 n.style.setProperty('opacity', '1', 'important');
                                 n.style.setProperty('filter', 'none', 'important');
@@ -16707,7 +16757,7 @@ const handlePDFShare = async () => {
                                 overlayParent.style.setProperty('position', 'absolute', 'important');
                                 overlayParent.style.setProperty('left', '0', 'important');
                                 overlayParent.style.setProperty('right', '0', 'important');
-                                overlayParent.style.setProperty('top', '18%', 'important');
+                                overlayParent.style.setProperty('top', '12%', 'important');
                                 overlayParent.style.setProperty('bottom', 'auto', 'important');
                                 overlayParent.style.setProperty('width', '100%', 'important');
                                 overlayParent.style.setProperty('height', 'auto', 'important');
