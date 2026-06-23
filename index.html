@@ -9781,15 +9781,31 @@ const fileInputRef = useRef(null);
                 try {
                     const db = getStatsDb();
                     const docId = `skip_${agentName}_${getMonthKey()}`;
-                    const doc = await db.collection('skip_limits').doc(docId).get();
+                    const ref = db.collection('skip_limits').doc(docId);
+                    const doc = await ref.get();
                     const current = doc.exists ? (doc.data().count || 0) : 0;
-                    await db.collection('skip_limits').doc(docId).set({
+                    await ref.set({
                         agent: agentName,
                         month: getMonthKey(),
                         count: current + 1,
                         ts: new Date().toISOString()
-                    });
-                } catch (e) { console.error('incrementSkipCount:', e); }
+                    }, { merge: true });
+                    // v56: Erfolg verifizieren – erneut lesen und ins Fehler-Log schreiben, falls es nicht griff
+                    try {
+                        const check = await ref.get();
+                        const newVal = check.exists ? (check.data().count || 0) : 0;
+                        if (newVal !== current + 1) {
+                            window.__appErrors = window.__appErrors || [];
+                            window.__appErrors.push({ ts: new Date().toISOString(), msg: `Skip-Zähler ${agentName}: erwartete ${current+1}, gelesen ${newVal} (Schreiben evtl. blockiert)` });
+                        }
+                    } catch(_){}
+                    return current + 1;
+                } catch (e) {
+                    console.error('incrementSkipCount:', e);
+                    window.__appErrors = window.__appErrors || [];
+                    window.__appErrors.push({ ts: new Date().toISOString(), msg: 'incrementSkipCount FEHLER (' + agentName + '): ' + ((e && e.message) || String(e)) });
+                    return null;
+                }
             };
             
             const resetSkipCount = async (agentName) => {
@@ -12390,47 +12406,23 @@ const SHARE_OFFSET_Y_PX  = 0; // Share: keep at 0 (prevents page-cut) // Share: 
 
 
                     // ===== FINAL PDF-SHARE AUTO-FIT: Verkaufsmappe/Bundles nicht verzerren =====
-                    // Problem: html2canvas/html2pdf rastern den Clone oft in echter Screen-DPI.
-                    // Importierte Bundle-HTML (Verkaufsmappe) kann dadurch zu groß wirken.
-                    // Lösung: Im Clone die Overlay-HTML gezielt "shrink-to-fit" + responsive Medien.
+                    // v56 ABSCHNEIDE-FIX (eigentliche Ursache!):
+                    // Dieser Block hat zuvor die Wrap-Geometrie ZERSTÖRT:
+                    //   - el.style.width='100%' überschrieb die nötige width-Basis (100/scale %),
+                    //     wodurch der innere Inhalt (Tablet/SIM/Preis, feste Pixelbreiten) über die
+                    //     zu schmale Box hinausragte;
+                    //   - host overflow:hidden hat genau diesen Überstand abgeschnitten.
+                    // Da EXTRA=1.0 (neutral) ist, bringt der Block ohnehin keine Verkleinerung mehr.
+                    // Wir lassen die Wrap-Breite/Transform daher IN RUHE und schneiden NICHT mehr ab.
                     try{
-                        const EXTRA = 1.0; // v51: keine weitere Shrink-Skalierung, damit Overlay kräftig bleibt
                         doc.querySelectorAll('.offer-html-overlay-wrap').forEach(el=>{
                             try{
-                                // 1) Transform scale(...) innerhalb "scale(x) rotate(...)" anpassen
-                                const t = String(el.style.transform||'');
-                                const m = t.match(/scale\(([^\)]+)\)/);
-                                if(m){
-                                    const s = parseFloat(m[1]);
-                                    if(!isNaN(s)){
-                                        const ns = (s * EXTRA);
-                                        el.style.transform = t.replace(/scale\([^\)]+\)/, `scale(${ns})`);
-                                    }
-                                } else if (t){
-                                    el.style.transform = `scale(${EXTRA}) ` + t;
-                                } else {
-                                    el.style.transform = `scale(${EXTRA})`;
-                                }
-
-                                // 2) Max-Breite enger, damit es garantiert in die Offer-Box passt
-                                el.style.maxWidth = '980px';
-                                el.style.width = '100%';
-                                el.style.boxSizing = 'border-box';
-                                el.style.paddingLeft = '6px';
-                                el.style.paddingRight = '6px';
-
-                                // 3) Medien-Elemente immer responsive
-                                el.querySelectorAll('img,svg,canvas,video').forEach(n=>{
+                                // Nur Medien responsive halten – KEINE width/transform/overflow-Eingriffe mehr.
+                                el.querySelectorAll('img,svg,video').forEach(n=>{
                                     n.style.maxWidth = '100%';
                                     n.style.height = 'auto';
                                     n.style.objectFit = 'contain';
                                 });
-
-                                // 4) Nichts darf über den Canvas hinausragen
-                                const host = el.closest('.offer-canvas-container') || el.parentElement;
-                                if(host){
-                                    host.style.overflow = 'hidden';
-                                }
                             }catch(_){}
                         });
 
