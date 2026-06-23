@@ -12356,7 +12356,13 @@ const SHARE_OFFSET_Y_PX  = 0; // Share: keep at 0 (prevents page-cut) // Share: 
                                     const screenScale = m ? parseFloat(m[1]) : 1;
                                     const pdfScale = screenScale * PS_PRINT_SCALE; // v56: 1,4× größer
                                     wrap.style.transform = `scale(${pdfScale})`;
-                                    wrap.style.transformOrigin = 'top center';
+                                    // v56 iPAD-FIX: Auf iOS von links oben skalieren, damit der
+                                    // vergrößerte Inhalt nach rechts (in den leeren Bereich) wächst
+                                    // statt mittig über den rechten Rand → kein Abschneiden.
+                                    // Android behält 'top center' (dort ist alles perfekt zentriert).
+                                    var __uaA = navigator.userAgent || '';
+                                    var __iosA = /iPad|iPhone|iPod/.test(__uaA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                                    wrap.style.transformOrigin = __iosA ? 'top left' : 'top center';
                                     wrap.style.opacity = '1';
                                     wrap.style.filter = 'none';
                                     wrap.style.webkitFilter = 'none';
@@ -13445,7 +13451,10 @@ const makeOfferPage = (sourceOfferEl, offerIndex, offerTitles) => {
             } else {
                 htmlOverlayWrap.style.setProperty('transform', 'scale(' + newScale + ')', 'important');
             }
-            htmlOverlayWrap.style.setProperty('transform-origin', 'top center', 'important');
+            // v56 iPAD-FIX: iOS von links oben skalieren (kein rechts-Abschneiden), Android 'top center'
+            var __uaC = navigator.userAgent || '';
+            var __iosC = /iPad|iPhone|iPod/.test(__uaC) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            htmlOverlayWrap.style.setProperty('transform-origin', __iosC ? 'top left' : 'top center', 'important');
             // Position etwas höher, da der Inhalt jetzt größer ist
             if (overlayParent) overlayParent.style.setProperty('top', '12%', 'important');
         } catch(_) {}
@@ -13949,6 +13958,24 @@ const opt = {
                         const noPlaceholder = clonedDoc.createElement('style');
                         noPlaceholder.textContent = 'input::placeholder{color:transparent!important;opacity:0!important}input::-webkit-input-placeholder{color:transparent!important;opacity:0!important}';
                         clonedDoc.head.appendChild(noPlaceholder);
+
+                        // v56 iPAD-OVERLAY-FIX: Auf iPad/Safari wurde das vergrößerte Bundle-Overlay
+                        // (Galaxy Tab + SIM) rechts abgeschnitten, weil der Karten-Container
+                        // overflow:hidden hat und der 1,4×-Inhalt über den Rand ragt.
+                        // NUR auf iOS/Safari den Überlauf für Bundle-Karten freigeben –
+                        // Android bleibt zu 100% unverändert (dort sitzt alles ohnehin im Rahmen).
+                        try {
+                            var __ua = navigator.userAgent || '';
+                            var __isIOS = /iPad|iPhone|iPod/.test(__ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                            var __isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(__ua);
+                            if (__isIOS || __isSafari) {
+                                var ovFix = clonedDoc.createElement('style');
+                                ovFix.textContent =
+                                    '.offer-canvas-container:has(.offer-html-overlay-wrap){overflow:visible !important;}' +
+                                    '.offer-canvas-container:has(.offer-html-overlay-wrap) .offer-overlay-outer{overflow:visible !important;}';
+                                clonedDoc.head.appendChild(ovFix);
+                            }
+                        } catch(e) {}
                     } catch(e) {}
 
                     const html = clonedDoc.documentElement;
@@ -16839,7 +16866,9 @@ const handlePDFShare = async () => {
                                 } else {
                                     overlayWrap.style.setProperty('transform', 'scale(' + newScale + ')', 'important');
                                 }
-                                overlayWrap.style.setProperty('transform-origin', 'top center', 'important');
+                                var __uaB = navigator.userAgent || '';
+                                var __iosB = /iPad|iPhone|iPod/.test(__uaB) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                                overlayWrap.style.setProperty('transform-origin', __iosB ? 'top left' : 'top center', 'important');
                             } catch(_) {}
                             try { overlayWrap.querySelectorAll('*').forEach(n => {
                                 n.style.setProperty('opacity', '1', 'important');
