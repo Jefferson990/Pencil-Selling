@@ -7412,6 +7412,9 @@ const highResHTML = buildHighResBundleHTML(d);
             }, [isOpen]);
 
             // Lade Skip-Daten wenn Skip-Tab geöffnet wird
+            // v56 FIX: Zähler aus den echten Vorgängen (fbRows = analytics) ableiten,
+            // NICHT aus der blockierten 'skip_limits'-Collection. So zeigt das Dashboard
+            // exakt so viele Skips, wie tatsächlich stattgefunden haben.
             useEffect(() => {
                 if (activeTab !== 'skip-management' || !isDiegoAdmin) return;
                 const monthKey = new Date().toISOString().slice(0, 7);
@@ -7421,15 +7424,23 @@ const highResHTML = buildHighResBundleHTML(d);
                         const allAgents = [...new Set((fbRows || []).map(r => resolveUserName(r.user)).filter(Boolean))];
                         const data = {};
                         for (const agent of allAgents) {
-                            let count = 0, limit = 15;
-                            try {
-                                const cDoc = await db.collection('skip_limits').doc(`skip_${agent}_${monthKey}`).get();
-                                if (cDoc.exists) count = cDoc.data().count || 0;
-                            } catch(_){}
+                            // Skip-Vorgänge dieses Agenten in DIESEM Monat aus analytics zählen
+                            let count = 0;
+                            (fbRows || []).forEach(r => {
+                                if (resolveUserName(r.user) !== agent) return;
+                                if (!r.ts || String(r.ts).slice(0, 7) !== monthKey) return;
+                                const cs = r.canvasStats || {};
+                                const wasSkipped = (cs.skip_reason && cs.skip_reason.used) ||
+                                                   (r.skipReasonText && String(r.skipReasonText).trim().length > 0);
+                                if (wasSkipped) count++;
+                            });
+                            // Limit aus skip_limits versuchen, sonst lokaler Puffer, sonst 15
+                            let limit = 15;
                             try {
                                 const lDoc = await db.collection('skip_limits').doc(`limit_${agent}`).get();
-                                if (lDoc.exists) limit = lDoc.data().max_limit || 15;
-                            } catch(_){}
+                                if (lDoc.exists && lDoc.data().max_limit) limit = lDoc.data().max_limit;
+                                else { try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); if (lo[agent]) limit = lo[agent]; } catch(_){} }
+                            } catch(_){ try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); if (lo[agent]) limit = lo[agent]; } catch(_){} }
                             data[agent] = { count, limit };
                         }
                         setSkipAgentsData(data);
@@ -7996,8 +8007,8 @@ const highResHTML = buildHighResBundleHTML(d);
                                                             {(skipReasonsByAgent[agent] || []).length > 0 && <span style={{color:'#94a3b8'}}> digital</span>}
                                                         </td>
                                                         <td style={{padding:'12px',display:'flex',gap:'6px'}}>
-                                                            <button onClick={async () => { try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: limit + 5, ts: new Date().toISOString() }, { merge: true }); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count, limit: limit + 5} })); triggerToast(`✓ Limit für ${agent} auf ${limit+5} erhöht`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#3b82f6',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>+5</button>
-                                                            <button onClick={async () => { try { const db = getStatsDb(); const monthKey = new Date().toISOString().slice(0,7); await db.collection('skip_limits').doc(`skip_${agent}_${monthKey}`).set({ agent, month: monthKey, count: 0, ts: new Date().toISOString() }); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count: 0, limit} })); triggerToast(`✓ Skip-Zähler für ${agent} resetet`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#f59e0b',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>Reset</button>
+                                                            <button onClick={async () => { const newLimit = limit + 5; try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: newLimit, ts: new Date().toISOString() }, { merge: true }); } catch(_){} try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); lo[agent] = newLimit; localStorage.setItem('ps_skip_limits', JSON.stringify(lo)); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count, limit: newLimit} })); triggerToast(`✓ Limit für ${agent} auf ${newLimit} erhöht`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#3b82f6',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>+5</button>
+                                                            <button onClick={async () => { const newLimit = Math.max(15, count + 15); try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: newLimit, ts: new Date().toISOString() }, { merge: true }); } catch(_){} try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); lo[agent] = newLimit; localStorage.setItem('ps_skip_limits', JSON.stringify(lo)); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count, limit: newLimit} })); triggerToast(`✓ ${agent} wieder freigeschaltet (Limit ${newLimit})`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#f59e0b',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}} title="Setzt das Limit über den aktuellen Stand, damit der Mitarbeiter wieder überspringen kann">Freischalten</button>
                                                         </td>
                                                     </tr>
                                                 );
@@ -8005,7 +8016,7 @@ const highResHTML = buildHighResBundleHTML(d);
                                         </tbody>
                                     </table>
                                     <div style={{padding:'12px',background:'#f0fdf4',borderTop:'1px solid #e2e8f0',fontSize:'11px',color:'#16a34a',lineHeight:1.5}}>
-                                        ✓ Automatisch zählt jeder übersprungene Vorgang (+1). Limits können erhöht oder auf 0 resetet werden. Diego hat kein Limit. Daten live aus Firestore.
+                                        ✓ Gezählt werden alle übersprungenen Vorgänge des Monats (direkt aus den echten Beratungen). Zähler springt am 1. des Monats automatisch auf 0. Mit „Freischalten" kann ein Mitarbeiter bei erreichtem Limit wieder überspringen. Diego (Admin) hat kein Limit.
                                     </div>
                                     <div style={{padding:'12px',background:'#fff',borderTop:'1px solid #e2e8f0'}}>
                                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
@@ -9761,51 +9772,56 @@ const fileInputRef = useRef(null);
             const getMonthKey = () => new Date().toISOString().slice(0, 7); // "2026-06"
             
             const getSkipCountThisMonth = async (agentName) => {
+                // v56 FIX: Zähler direkt aus der funktionierenden 'analytics'-Collection ableiten.
+                // Die separate 'skip_limits'-Collection wird von den Firestore-Regeln blockiert
+                // (Schreiben schlug still fehl → Zähler blieb 0). Die echten Vorgänge in 'analytics'
+                // sind aber vorhanden und schreibbar. Wir zählen einfach die Skip-Vorgänge dieses
+                // Agenten in diesem Monat – das ist die zuverlässige Wahrheit.
                 try {
                     const db = getStatsDb();
-                    const docId = `skip_${agentName}_${getMonthKey()}`;
-                    const doc = await db.collection('skip_limits').doc(docId).get();
-                    return doc.exists ? (doc.data().count || 0) : 0;
-                } catch (e) { console.error('getSkipCountThisMonth:', e); return 0; }
+                    const monthKey = getMonthKey(); // "2026-06"
+                    const snap = await db.collection('analytics')
+                        .where('user', '==', agentName)
+                        .get();
+                    let count = 0;
+                    snap.forEach(d => {
+                        const r = d.data() || {};
+                        // Nur Vorgänge aus DIESEM Monat (ts beginnt mit "2026-06")
+                        if (!r.ts || String(r.ts).slice(0, 7) !== monthKey) return;
+                        const cs = r.canvasStats || {};
+                        const wasSkipped = (cs.skip_reason && cs.skip_reason.used) ||
+                                           (r.skipReasonText && String(r.skipReasonText).trim().length > 0);
+                        if (wasSkipped) count++;
+                    });
+                    return count;
+                } catch (e) {
+                    console.error('getSkipCountThisMonth:', e);
+                    return 0;
+                }
             };
             
             const getSkipLimit = async (agentName) => {
+                // Limit weiterhin aus skip_limits versuchen; bei Blockade Fallback 15.
+                // Limit-Erhöhung (+5) wird zusätzlich lokal gepuffert, falls Firestore blockt.
                 try {
                     const db = getStatsDb();
                     const doc = await db.collection('skip_limits').doc(`limit_${agentName}`).get();
-                    return doc.exists ? (doc.data().max_limit || 15) : 15;
-                } catch (e) { console.error('getSkipLimit:', e); return 15; }
+                    if (doc.exists && doc.data().max_limit) return doc.data().max_limit;
+                } catch (e) { /* Firestore blockt evtl. – Fallback unten */ }
+                // Lokaler Fallback-Puffer für erhöhte Limits
+                try {
+                    const local = JSON.parse(localStorage.getItem('ps_skip_limits') || '{}');
+                    if (local && local[agentName]) return local[agentName];
+                } catch(_){}
+                return 15;
             };
             
             const incrementSkipCount = async (agentName) => {
-                try {
-                    const db = getStatsDb();
-                    const docId = `skip_${agentName}_${getMonthKey()}`;
-                    const ref = db.collection('skip_limits').doc(docId);
-                    const doc = await ref.get();
-                    const current = doc.exists ? (doc.data().count || 0) : 0;
-                    await ref.set({
-                        agent: agentName,
-                        month: getMonthKey(),
-                        count: current + 1,
-                        ts: new Date().toISOString()
-                    }, { merge: true });
-                    // v56: Erfolg verifizieren – erneut lesen und ins Fehler-Log schreiben, falls es nicht griff
-                    try {
-                        const check = await ref.get();
-                        const newVal = check.exists ? (check.data().count || 0) : 0;
-                        if (newVal !== current + 1) {
-                            window.__appErrors = window.__appErrors || [];
-                            window.__appErrors.push({ ts: new Date().toISOString(), msg: `Skip-Zähler ${agentName}: erwartete ${current+1}, gelesen ${newVal} (Schreiben evtl. blockiert)` });
-                        }
-                    } catch(_){}
-                    return current + 1;
-                } catch (e) {
-                    console.error('incrementSkipCount:', e);
-                    window.__appErrors = window.__appErrors || [];
-                    window.__appErrors.push({ ts: new Date().toISOString(), msg: 'incrementSkipCount FEHLER (' + agentName + '): ' + ((e && e.message) || String(e)) });
-                    return null;
-                }
+                // v56: Kein separater Zähler mehr nötig – die Zählung kommt aus 'analytics'
+                // (siehe getSkipCountThisMonth). Diese Funktion bleibt als No-Op erhalten,
+                // damit bestehende Aufrufe nicht brechen. Der Skip-Vorgang selbst wird beim
+                // Abschluss in 'analytics' gespeichert und dort gezählt.
+                return null;
             };
             
             const resetSkipCount = async (agentName) => {
