@@ -7402,6 +7402,7 @@ const highResHTML = buildHighResBundleHTML(d);
             const [selectedAgent, setSelectedAgent] = useState('__all__');
             const [activeTab, setActiveTab] = useState('uebersicht');
             const [skipAgentsData, setSkipAgentsData] = useState({}); // { agentName: {count, limit} }
+            const [skipLimitsData, setSkipLimitsData] = useState({}); // v56: { agentName: limit } – nur Limits
             const [range, setRange] = useState('31');
             const isDiegoAdmin = (LINK_EMPLOYEE === 'Diego da Silva');
 
@@ -7411,40 +7412,28 @@ const highResHTML = buildHighResBundleHTML(d);
                 loadRowsFromFirebase().then(data => { setFbRows(data); setFbLoading(false); });
             }, [isOpen]);
 
-            // Lade Skip-Daten wenn Skip-Tab geöffnet wird
-            // v56 FIX: Zähler aus den echten Vorgängen (fbRows = analytics) ableiten,
-            // NICHT aus der blockierten 'skip_limits'-Collection. So zeigt das Dashboard
-            // exakt so viele Skips, wie tatsächlich stattgefunden haben.
+            // Lade Skip-LIMITS wenn Skip-Tab geöffnet wird (nur das Limit aus Firestore/lokal).
+            // v56 FIX: Der ZÄHLER kommt NICHT mehr von hier, sondern wird unten direkt aus
+            // skipReasonsByAgent abgeleitet – exakt dieselbe Quelle wie die "X digital"-Anzeige,
+            // die nachweislich funktioniert. Hier laden wir nur noch die Limits.
             useEffect(() => {
                 if (activeTab !== 'skip-management' || !isDiegoAdmin) return;
-                const monthKey = new Date().toISOString().slice(0, 7);
                 (async () => {
                     try {
                         const db = getStatsDb();
                         const allAgents = [...new Set((fbRows || []).map(r => resolveUserName(r.user)).filter(Boolean))];
-                        const data = {};
+                        const limits = {};
                         for (const agent of allAgents) {
-                            // Skip-Vorgänge dieses Agenten in DIESEM Monat aus analytics zählen
-                            let count = 0;
-                            (fbRows || []).forEach(r => {
-                                if (resolveUserName(r.user) !== agent) return;
-                                if (!r.ts || String(r.ts).slice(0, 7) !== monthKey) return;
-                                const cs = r.canvasStats || {};
-                                const wasSkipped = (cs.skip_reason && cs.skip_reason.used) ||
-                                                   (r.skipReasonText && String(r.skipReasonText).trim().length > 0);
-                                if (wasSkipped) count++;
-                            });
-                            // Limit aus skip_limits versuchen, sonst lokaler Puffer, sonst 15
                             let limit = 15;
                             try {
                                 const lDoc = await db.collection('skip_limits').doc(`limit_${agent}`).get();
                                 if (lDoc.exists && lDoc.data().max_limit) limit = lDoc.data().max_limit;
                                 else { try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); if (lo[agent]) limit = lo[agent]; } catch(_){} }
                             } catch(_){ try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); if (lo[agent]) limit = lo[agent]; } catch(_){} }
-                            data[agent] = { count, limit };
+                            limits[agent] = limit;
                         }
-                        setSkipAgentsData(data);
-                    } catch (e) { console.error('Skip data load error:', e); }
+                        setSkipLimitsData(limits);
+                    } catch (e) { console.error('Skip limit load error:', e); }
                 })();
             }, [activeTab, fbRows]);
 
@@ -7561,6 +7550,25 @@ const highResHTML = buildHighResBundleHTML(d);
                 });
                 return map;
             }, [skipReasonRows]);
+
+            // v56: Skip-ZÄHLER pro Mitarbeiter für DIESEN Monat – exakt dieselbe Erkennung
+            // wie die "X digital"-Anzeige (hasText || skip_reason.used), aber immer aus ALLEN
+            // Vorgängen (fbRows, nicht zeitraum-gefiltert) und strikt auf den laufenden Monat.
+            // Das ist die robuste Wahrheit, unabhängig vom 7T/31T/90T-Filter oben.
+            const skipCountByAgentThisMonth = useMemo(() => {
+                const monthKey = new Date().toISOString().slice(0, 7); // "2026-06"
+                const map = {};
+                (fbRows || []).forEach(r => {
+                    const agent = resolveUserName(r.user);
+                    if (!agent || agent === '–') return;
+                    if (!r.ts || String(r.ts).slice(0, 7) !== monthKey) return;
+                    const cs = r.canvasStats || {};
+                    const wasSkipped = (cs.skip_reason && cs.skip_reason.used) ||
+                                       (r.skipReasonText && String(r.skipReasonText).trim().length > 0);
+                    if (wasSkipped) map[agent] = (map[agent] || 0) + 1;
+                });
+                return map;
+            }, [fbRows]);
 
             if (!isOpen) return null;
 
@@ -7982,7 +7990,8 @@ const highResHTML = buildHighResBundleHTML(d);
                         )}
 
                         {activeTab==='skip-management' && isDiegoAdmin && (() => {
-                            const allAgents = Object.keys(skipAgentsData);
+                            // v56: Mitarbeiterliste aus den echten Vorgängen (fbRows), nicht aus dem alten State.
+                            const allAgents = [...new Set((fbRows || []).map(r => resolveUserName(r.user)).filter(a => a && a !== '–'))].sort();
                             return (
                                 <div style={{background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',overflow:'hidden'}}>
                                     <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
@@ -7995,7 +8004,8 @@ const highResHTML = buildHighResBundleHTML(d);
                                         </thead>
                                         <tbody>
                                             {allAgents.map((agent,i) => {
-                                                const {count, limit} = skipAgentsData[agent] || {count: 0, limit: 15};
+                                                const count = skipCountByAgentThisMonth[agent] || 0;
+                                                const limit = skipLimitsData[agent] || 15;
                                                 const isAtLimit = count >= limit;
                                                 return (
                                                     <tr key={agent} style={{borderTop:'1px solid #f1f5f9',background:i%2===0?'#fff':'#fafafa'}}>
@@ -8007,8 +8017,8 @@ const highResHTML = buildHighResBundleHTML(d);
                                                             {(skipReasonsByAgent[agent] || []).length > 0 && <span style={{color:'#94a3b8'}}> digital</span>}
                                                         </td>
                                                         <td style={{padding:'12px',display:'flex',gap:'6px'}}>
-                                                            <button onClick={async () => { const newLimit = limit + 5; try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: newLimit, ts: new Date().toISOString() }, { merge: true }); } catch(_){} try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); lo[agent] = newLimit; localStorage.setItem('ps_skip_limits', JSON.stringify(lo)); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count, limit: newLimit} })); triggerToast(`✓ Limit für ${agent} auf ${newLimit} erhöht`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#3b82f6',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>+5</button>
-                                                            <button onClick={async () => { const newLimit = Math.max(15, count + 15); try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: newLimit, ts: new Date().toISOString() }, { merge: true }); } catch(_){} try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); lo[agent] = newLimit; localStorage.setItem('ps_skip_limits', JSON.stringify(lo)); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count, limit: newLimit} })); triggerToast(`✓ ${agent} wieder freigeschaltet (Limit ${newLimit})`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#f59e0b',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}} title="Setzt das Limit über den aktuellen Stand, damit der Mitarbeiter wieder überspringen kann">Freischalten</button>
+                                                            <button onClick={async () => { const newLimit = limit + 5; try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: newLimit, ts: new Date().toISOString() }, { merge: true }); } catch(_){} try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); lo[agent] = newLimit; localStorage.setItem('ps_skip_limits', JSON.stringify(lo)); } catch(_){} setSkipLimitsData(prev => ({ ...prev, [agent]: newLimit })); triggerToast(`✓ Limit für ${agent} auf ${newLimit} erhöht`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#3b82f6',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>+5</button>
+                                                            <button onClick={async () => { const newLimit = Math.max(15, count + 15); try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: newLimit, ts: new Date().toISOString() }, { merge: true }); } catch(_){} try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); lo[agent] = newLimit; localStorage.setItem('ps_skip_limits', JSON.stringify(lo)); } catch(_){} setSkipLimitsData(prev => ({ ...prev, [agent]: newLimit })); triggerToast(`✓ ${agent} wieder freigeschaltet (Limit ${newLimit})`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#f59e0b',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}} title="Setzt das Limit über den aktuellen Stand, damit der Mitarbeiter wieder überspringen kann">Freischalten</button>
                                                         </td>
                                                     </tr>
                                                 );
@@ -9780,12 +9790,14 @@ const fileInputRef = useRef(null);
                 try {
                     const db = getStatsDb();
                     const monthKey = getMonthKey(); // "2026-06"
-                    const snap = await db.collection('analytics')
-                        .where('user', '==', agentName)
-                        .get();
+                    // Ohne .where() laden (kein Firestore-Index nötig), clientseitig filtern.
+                    const snap = await db.collection('analytics').get();
                     let count = 0;
                     snap.forEach(d => {
                         const r = d.data() || {};
+                        // Name normalisieren wie im Dashboard (Trim)
+                        const u = (r.user == null) ? '' : String(r.user).trim();
+                        if (u !== agentName) return;
                         // Nur Vorgänge aus DIESEM Monat (ts beginnt mit "2026-06")
                         if (!r.ts || String(r.ts).slice(0, 7) !== monthKey) return;
                         const cs = r.canvasStats || {};
