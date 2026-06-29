@@ -4790,14 +4790,21 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
 </div><div className="flex justify-between items-center mt-4"><button onClick={clearCanvas} className="px-4 py-2 text-slate-500 font-medium hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2" disabled={!hasSigned}><Icon d={ICONS.Trash} size={16}/> Löschen</button><div className="flex gap-2"><button onClick={() => onClose(true)} className="px-4 py-2 text-slate-500 font-medium hover:bg-slate-100 rounded-lg transition-colors">Abbrechen</button><button onClick={handleSave} className={`px-6 py-2 rounded-lg font-bold shadow-md transition-all flex items-center gap-2 ${hasSigned ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`} disabled={!hasSigned}>Übernehmen <Icon d={ICONS.CheckCircle} size={16}/></button></div></div></div></div>);
         };
 
-        const FinishTypeModal = ({ isOpen, onClose, onSelect, onShare, onPdfPrint }) => {
+        const FinishTypeModal = ({ isOpen, onClose, onSelect, onShare, onPdfPrint, onArchive }) => {
             if (!isOpen) return null;
             const [pdfBusy, setPdfBusy] = React.useState(false);
+            const [archBusy, setArchBusy] = React.useState(false);
             const handlePdfPrint = async () => {
                 if (pdfBusy) return;
                 setPdfBusy(true);
                 try { await onPdfPrint(); } catch(e) {}
                 setPdfBusy(false);
+            };
+            const handleArchive = async () => {
+                if (archBusy || !onArchive) return;
+                setArchBusy(true);
+                try { await onArchive('abschluss'); } catch(e) {}
+                setArchBusy(false);
             };
             return (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/75 backdrop-blur-md p-4 animate-in fade-in">
@@ -4845,6 +4852,25 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
                                     <div style={{fontSize:'12px',color:'#92400e',marginTop:'2px'}}>Exakt wie auf dem Bildschirm – kein Verziehen</div>
                                 </div>
                                 <div style={{marginLeft:'auto',fontSize:'18px',color:'#f59e0b'}}>→</div>
+                            </button>
+
+                            {/* Trennlinie Archiv */}
+                            <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                                <div style={{flex:1,height:'1px',background:'#e2e8f0'}}/>
+                                <span style={{fontSize:'11px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.06em'}}>für die Ablage</span>
+                                <div style={{flex:1,height:'1px',background:'#e2e8f0'}}/>
+                            </div>
+
+                            {/* Ins Archiv senden */}
+                            <button onClick={handleArchive} disabled={archBusy} style={{display:'flex',alignItems:'center',gap:'16px',padding:'16px 20px',borderRadius:'16px',border:'2px solid #c7d2fe',background:archBusy?'#e0e7ff':'linear-gradient(135deg,#eef2ff,#e0e7ff)',cursor:archBusy?'wait':'pointer',textAlign:'left',transition:'all 0.15s',width:'100%',opacity:archBusy?0.7:1}}
+                                onMouseEnter={e=>{if(!archBusy){e.currentTarget.style.borderColor='#6366f1';e.currentTarget.style.transform='translateY(-1px)';}}}
+                                onMouseLeave={e=>{e.currentTarget.style.borderColor='#c7d2fe';e.currentTarget.style.transform='none';}}>
+                                <div style={{width:'48px',height:'48px',borderRadius:'14px',background:'linear-gradient(135deg,#6366f1,#4f46e5)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:'22px'}}>{archBusy ? '⏳' : '📁'}</div>
+                                <div style={{flex:1}}>
+                                    <div style={{fontSize:'16px',fontWeight:900,color:'#3730a3'}}>{archBusy ? 'PDF wird erstellt…' : 'Ins Archiv senden'}</div>
+                                    <div style={{fontSize:'12px',color:'#4f46e5',marginTop:'2px'}}>PDF speichern &amp; per Mail archivieren</div>
+                                </div>
+                                <div style={{marginLeft:'auto',fontSize:'18px',color:'#6366f1'}}>→</div>
                             </button>
 
                             {/* Teilen – volle Breite */}
@@ -7402,7 +7428,6 @@ const highResHTML = buildHighResBundleHTML(d);
             const [selectedAgent, setSelectedAgent] = useState('__all__');
             const [activeTab, setActiveTab] = useState('uebersicht');
             const [skipAgentsData, setSkipAgentsData] = useState({}); // { agentName: {count, limit} }
-            const [skipLimitsData, setSkipLimitsData] = useState({}); // v56: { agentName: limit } – nur Limits
             const [range, setRange] = useState('31');
             const isDiegoAdmin = (LINK_EMPLOYEE === 'Diego da Silva');
 
@@ -7412,28 +7437,29 @@ const highResHTML = buildHighResBundleHTML(d);
                 loadRowsFromFirebase().then(data => { setFbRows(data); setFbLoading(false); });
             }, [isOpen]);
 
-            // Lade Skip-LIMITS wenn Skip-Tab geöffnet wird (nur das Limit aus Firestore/lokal).
-            // v56 FIX: Der ZÄHLER kommt NICHT mehr von hier, sondern wird unten direkt aus
-            // skipReasonsByAgent abgeleitet – exakt dieselbe Quelle wie die "X digital"-Anzeige,
-            // die nachweislich funktioniert. Hier laden wir nur noch die Limits.
+            // Lade Skip-Daten wenn Skip-Tab geöffnet wird
             useEffect(() => {
                 if (activeTab !== 'skip-management' || !isDiegoAdmin) return;
+                const monthKey = new Date().toISOString().slice(0, 7);
                 (async () => {
                     try {
                         const db = getStatsDb();
                         const allAgents = [...new Set((fbRows || []).map(r => resolveUserName(r.user)).filter(Boolean))];
-                        const limits = {};
+                        const data = {};
                         for (const agent of allAgents) {
-                            let limit = 15;
+                            let count = 0, limit = 15;
+                            try {
+                                const cDoc = await db.collection('skip_limits').doc(`skip_${agent}_${monthKey}`).get();
+                                if (cDoc.exists) count = cDoc.data().count || 0;
+                            } catch(_){}
                             try {
                                 const lDoc = await db.collection('skip_limits').doc(`limit_${agent}`).get();
-                                if (lDoc.exists && lDoc.data().max_limit) limit = lDoc.data().max_limit;
-                                else { try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); if (lo[agent]) limit = lo[agent]; } catch(_){} }
-                            } catch(_){ try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); if (lo[agent]) limit = lo[agent]; } catch(_){} }
-                            limits[agent] = limit;
+                                if (lDoc.exists) limit = lDoc.data().max_limit || 15;
+                            } catch(_){}
+                            data[agent] = { count, limit };
                         }
-                        setSkipLimitsData(limits);
-                    } catch (e) { console.error('Skip limit load error:', e); }
+                        setSkipAgentsData(data);
+                    } catch (e) { console.error('Skip data load error:', e); }
                 })();
             }, [activeTab, fbRows]);
 
@@ -7550,25 +7576,6 @@ const highResHTML = buildHighResBundleHTML(d);
                 });
                 return map;
             }, [skipReasonRows]);
-
-            // v56: Skip-ZÄHLER pro Mitarbeiter für DIESEN Monat – exakt dieselbe Erkennung
-            // wie die "X digital"-Anzeige (hasText || skip_reason.used), aber immer aus ALLEN
-            // Vorgängen (fbRows, nicht zeitraum-gefiltert) und strikt auf den laufenden Monat.
-            // Das ist die robuste Wahrheit, unabhängig vom 7T/31T/90T-Filter oben.
-            const skipCountByAgentThisMonth = useMemo(() => {
-                const monthKey = new Date().toISOString().slice(0, 7); // "2026-06"
-                const map = {};
-                (fbRows || []).forEach(r => {
-                    const agent = resolveUserName(r.user);
-                    if (!agent || agent === '–') return;
-                    if (!r.ts || String(r.ts).slice(0, 7) !== monthKey) return;
-                    const cs = r.canvasStats || {};
-                    const wasSkipped = (cs.skip_reason && cs.skip_reason.used) ||
-                                       (r.skipReasonText && String(r.skipReasonText).trim().length > 0);
-                    if (wasSkipped) map[agent] = (map[agent] || 0) + 1;
-                });
-                return map;
-            }, [fbRows]);
 
             if (!isOpen) return null;
 
@@ -7990,8 +7997,7 @@ const highResHTML = buildHighResBundleHTML(d);
                         )}
 
                         {activeTab==='skip-management' && isDiegoAdmin && (() => {
-                            // v56: Mitarbeiterliste aus den echten Vorgängen (fbRows), nicht aus dem alten State.
-                            const allAgents = [...new Set((fbRows || []).map(r => resolveUserName(r.user)).filter(a => a && a !== '–'))].sort();
+                            const allAgents = Object.keys(skipAgentsData);
                             return (
                                 <div style={{background:'#fff',borderRadius:'14px',border:'1px solid #e2e8f0',overflow:'hidden'}}>
                                     <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
@@ -8004,8 +8010,7 @@ const highResHTML = buildHighResBundleHTML(d);
                                         </thead>
                                         <tbody>
                                             {allAgents.map((agent,i) => {
-                                                const count = skipCountByAgentThisMonth[agent] || 0;
-                                                const limit = skipLimitsData[agent] || 15;
+                                                const {count, limit} = skipAgentsData[agent] || {count: 0, limit: 15};
                                                 const isAtLimit = count >= limit;
                                                 return (
                                                     <tr key={agent} style={{borderTop:'1px solid #f1f5f9',background:i%2===0?'#fff':'#fafafa'}}>
@@ -8017,8 +8022,8 @@ const highResHTML = buildHighResBundleHTML(d);
                                                             {(skipReasonsByAgent[agent] || []).length > 0 && <span style={{color:'#94a3b8'}}> digital</span>}
                                                         </td>
                                                         <td style={{padding:'12px',display:'flex',gap:'6px'}}>
-                                                            <button onClick={async () => { const newLimit = limit + 5; try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: newLimit, ts: new Date().toISOString() }, { merge: true }); } catch(_){} try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); lo[agent] = newLimit; localStorage.setItem('ps_skip_limits', JSON.stringify(lo)); } catch(_){} setSkipLimitsData(prev => ({ ...prev, [agent]: newLimit })); triggerToast(`✓ Limit für ${agent} auf ${newLimit} erhöht`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#3b82f6',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>+5</button>
-                                                            <button onClick={async () => { const newLimit = Math.max(15, count + 15); try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: newLimit, ts: new Date().toISOString() }, { merge: true }); } catch(_){} try { const lo = JSON.parse(localStorage.getItem('ps_skip_limits')||'{}'); lo[agent] = newLimit; localStorage.setItem('ps_skip_limits', JSON.stringify(lo)); } catch(_){} setSkipLimitsData(prev => ({ ...prev, [agent]: newLimit })); triggerToast(`✓ ${agent} wieder freigeschaltet (Limit ${newLimit})`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#f59e0b',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}} title="Setzt das Limit über den aktuellen Stand, damit der Mitarbeiter wieder überspringen kann">Freischalten</button>
+                                                            <button onClick={async () => { try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: limit + 5, ts: new Date().toISOString() }, { merge: true }); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count, limit: limit + 5} })); triggerToast(`✓ Limit für ${agent} auf ${limit+5} erhöht`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#3b82f6',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>+5</button>
+                                                            <button onClick={async () => { try { const db = getStatsDb(); const monthKey = new Date().toISOString().slice(0,7); await db.collection('skip_limits').doc(`skip_${agent}_${monthKey}`).set({ agent, month: monthKey, count: 0, ts: new Date().toISOString() }); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count: 0, limit} })); triggerToast(`✓ Skip-Zähler für ${agent} resetet`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#f59e0b',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>Reset</button>
                                                         </td>
                                                     </tr>
                                                 );
@@ -8026,7 +8031,7 @@ const highResHTML = buildHighResBundleHTML(d);
                                         </tbody>
                                     </table>
                                     <div style={{padding:'12px',background:'#f0fdf4',borderTop:'1px solid #e2e8f0',fontSize:'11px',color:'#16a34a',lineHeight:1.5}}>
-                                        ✓ Gezählt werden alle übersprungenen Vorgänge des Monats (direkt aus den echten Beratungen). Zähler springt am 1. des Monats automatisch auf 0. Mit „Freischalten" kann ein Mitarbeiter bei erreichtem Limit wieder überspringen. Diego (Admin) hat kein Limit.
+                                        ✓ Automatisch zählt jeder übersprungene Vorgang (+1). Limits können erhöht oder auf 0 resetet werden. Diego hat kein Limit. Daten live aus Firestore.
                                     </div>
                                     <div style={{padding:'12px',background:'#fff',borderTop:'1px solid #e2e8f0'}}>
                                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
@@ -9062,6 +9067,8 @@ window.__appWarnings = window.__appWarnings || [];
 
 const PA_UPLOAD_URL = 'PASTE_POWER_AUTOMATE_FLOW_URL_HERE';
             const PA_SHARED_KEY = ''; // optional: z.B. 'hetec-xyz-123'
+            // Archiv-Postfach: hierhin schickt der Mitarbeiter das abgeschlossene Angebot (Power Automate sortiert es weiter)
+            const ARCHIV_EMAIL = 'o2-shop-aalen@hetec-gmbh.de';
 
             // NOTE: Tablet-Browser im "Desktopmodus" kann 'Android' aus dem User-Agent entfernen.
             // Daher UI nicht nur nach UA, sondern nach echter WebShare-Fähigkeit anzeigen.
@@ -9782,58 +9789,35 @@ const fileInputRef = useRef(null);
             const getMonthKey = () => new Date().toISOString().slice(0, 7); // "2026-06"
             
             const getSkipCountThisMonth = async (agentName) => {
-                // v56 FIX: Zähler direkt aus der funktionierenden 'analytics'-Collection ableiten.
-                // Die separate 'skip_limits'-Collection wird von den Firestore-Regeln blockiert
-                // (Schreiben schlug still fehl → Zähler blieb 0). Die echten Vorgänge in 'analytics'
-                // sind aber vorhanden und schreibbar. Wir zählen einfach die Skip-Vorgänge dieses
-                // Agenten in diesem Monat – das ist die zuverlässige Wahrheit.
                 try {
                     const db = getStatsDb();
-                    const monthKey = getMonthKey(); // "2026-06"
-                    // Ohne .where() laden (kein Firestore-Index nötig), clientseitig filtern.
-                    const snap = await db.collection('analytics').get();
-                    let count = 0;
-                    snap.forEach(d => {
-                        const r = d.data() || {};
-                        // Name normalisieren wie im Dashboard (Trim)
-                        const u = (r.user == null) ? '' : String(r.user).trim();
-                        if (u !== agentName) return;
-                        // Nur Vorgänge aus DIESEM Monat (ts beginnt mit "2026-06")
-                        if (!r.ts || String(r.ts).slice(0, 7) !== monthKey) return;
-                        const cs = r.canvasStats || {};
-                        const wasSkipped = (cs.skip_reason && cs.skip_reason.used) ||
-                                           (r.skipReasonText && String(r.skipReasonText).trim().length > 0);
-                        if (wasSkipped) count++;
-                    });
-                    return count;
-                } catch (e) {
-                    console.error('getSkipCountThisMonth:', e);
-                    return 0;
-                }
+                    const docId = `skip_${agentName}_${getMonthKey()}`;
+                    const doc = await db.collection('skip_limits').doc(docId).get();
+                    return doc.exists ? (doc.data().count || 0) : 0;
+                } catch (e) { console.error('getSkipCountThisMonth:', e); return 0; }
             };
             
             const getSkipLimit = async (agentName) => {
-                // Limit weiterhin aus skip_limits versuchen; bei Blockade Fallback 15.
-                // Limit-Erhöhung (+5) wird zusätzlich lokal gepuffert, falls Firestore blockt.
                 try {
                     const db = getStatsDb();
                     const doc = await db.collection('skip_limits').doc(`limit_${agentName}`).get();
-                    if (doc.exists && doc.data().max_limit) return doc.data().max_limit;
-                } catch (e) { /* Firestore blockt evtl. – Fallback unten */ }
-                // Lokaler Fallback-Puffer für erhöhte Limits
-                try {
-                    const local = JSON.parse(localStorage.getItem('ps_skip_limits') || '{}');
-                    if (local && local[agentName]) return local[agentName];
-                } catch(_){}
-                return 15;
+                    return doc.exists ? (doc.data().max_limit || 15) : 15;
+                } catch (e) { console.error('getSkipLimit:', e); return 15; }
             };
             
             const incrementSkipCount = async (agentName) => {
-                // v56: Kein separater Zähler mehr nötig – die Zählung kommt aus 'analytics'
-                // (siehe getSkipCountThisMonth). Diese Funktion bleibt als No-Op erhalten,
-                // damit bestehende Aufrufe nicht brechen. Der Skip-Vorgang selbst wird beim
-                // Abschluss in 'analytics' gespeichert und dort gezählt.
-                return null;
+                try {
+                    const db = getStatsDb();
+                    const docId = `skip_${agentName}_${getMonthKey()}`;
+                    const doc = await db.collection('skip_limits').doc(docId).get();
+                    const current = doc.exists ? (doc.data().count || 0) : 0;
+                    await db.collection('skip_limits').doc(docId).set({
+                        agent: agentName,
+                        month: getMonthKey(),
+                        count: current + 1,
+                        ts: new Date().toISOString()
+                    });
+                } catch (e) { console.error('incrementSkipCount:', e); }
             };
             
             const resetSkipCount = async (agentName) => {
@@ -10376,7 +10360,11 @@ const isOfferAreaNonEmpty = React.useCallback((k) => {
                 }
             }, [getDisplayText, drawnStrokes, canvasImages, canvasHtml]);
 
-            const isReadyToFinish = ['offer1','offer2','offer3'].every(k => {
+            // v57: "Fertigstellen" nur freigeben, wenn mindestens EIN Angebot Inhalt hat
+            // UND alle befüllten Angebote einen Status (Offen/Abgeschlossen) tragen.
+            // Vorher war der Button schon bei komplett leeren Angeboten grün -> wirkte "tot".
+            const __anyOfferFilled = ['offer1','offer2','offer3'].some(k => isOfferAreaNonEmpty(k));
+            const isReadyToFinish = __anyOfferFilled && ['offer1','offer2','offer3'].every(k => {
                 if (!isOfferAreaNonEmpty(k)) return true; // leer -> keine Status-Pflicht
                 const s = (canvasStatus && canvasStatus[k]) ? canvasStatus[k] : 'neutral';
                 return (s === 'open' || s === 'closed');
@@ -10724,6 +10712,7 @@ const isOfferAreaNonEmpty = React.useCallback((k) => {
             };
 
 const handleFinishOfferClick = () => {
+              try {
                 // Inhalterkennung: Status nur fuer Bereiche erzwingen, die wirklich Inhalt haben
                 const keys = ['offer1','offer2','offer3'];
                 const nonEmptyKeys = keys.filter(k => {
@@ -10758,11 +10747,17 @@ const handleFinishOfferClick = () => {
                     let __pdfName = `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
                     let __msisdn = rufnummerFromForm;
                     try {
-                        const ms = window.prompt('📱 Rufnummer des Kunden für PDF-Dateiname:\n(Wird auch für den E-Mail-Betreff verwendet)', rufnummerFromForm || '');
-                        const cleanMs = (ms || '').replace(/[^0-9+]/g, '').trim();
-                        if (cleanMs) {
-                            __msisdn = cleanMs;
-                            __pdfName = `Angebot_${cleanMs}_${new Date().toISOString().slice(0,10)}.pdf`;
+                        // v57: window.prompt blockiert/streikt auf iOS-Standalone & manchen Android-Tablets.
+                        // Nur fragen, wenn im Formular KEINE Rufnummer steht – sonst direkt nutzen.
+                        if (!rufnummerFromForm) {
+                            const ms = window.prompt('Rufnummer des Kunden fuer PDF-Dateiname:\n(Wird auch fuer den E-Mail-Betreff verwendet)', '');
+                            const cleanMs = (ms || '').replace(/[^0-9+]/g, '').trim();
+                            if (cleanMs) {
+                                __msisdn = cleanMs;
+                                __pdfName = `Angebot_${cleanMs}_${new Date().toISOString().slice(0,10)}.pdf`;
+                            }
+                        } else {
+                            __pdfName = `Angebot_${rufnummerFromForm}_${new Date().toISOString().slice(0,10)}.pdf`;
                         }
                     } catch(e) {}
                     if (!runOnlyWithOfferValidity(() => {
@@ -10821,6 +10816,11 @@ const handleFinishOfferClick = () => {
 
                 // Ohne Unterschrift: Entscheidung (Papier / PDF / Share) wie bisher
                 setShowFinishTypeModal(true);
+              } catch(err) {
+                try { window.__appErrors = window.__appErrors || []; window.__appErrors.push({ ts:new Date().toISOString(), msg:'Fertigstellen-Fehler: ' + ((err&&err.message)||String(err)) }); } catch(_){}
+                try { triggerToast('Fehler beim Fertigstellen: ' + ((err&&err.message)||'Unbekannt') + ' – bitte erneut tippen.'); } catch(_){}
+                try { setShowFinishTypeModal(true); } catch(_){}
+              }
             };
 
             const handleFinishTypeSelection = (type) => {
@@ -12398,13 +12398,7 @@ const SHARE_OFFSET_Y_PX  = 0; // Share: keep at 0 (prevents page-cut) // Share: 
                                     const t = wrap.style.transform || '';
                                     const m = t.match(/scale\(([\d.]+)\)/);
                                     const screenScale = m ? parseFloat(m[1]) : 1;
-                                    // v56 FINALE LÖSUNG: Vergrößerung NUR auf Android.
-                                    // Auf iPad lief der 1,4×-Inhalt rechts aus dem Bild (Preis/SIM weg).
-                                    // iPad nutzt daher die Original-Skalierung (war immer randlos korrekt),
-                                    // Android behält die 1,4×-Vergrößerung (dort ist sie perfekt).
-                                    var __uaA = navigator.userAgent || '';
-                                    var __iosA = /iPad|iPhone|iPod/.test(__uaA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-                                    const pdfScale = __iosA ? screenScale : (screenScale * PS_PRINT_SCALE);
+                                    const pdfScale = screenScale * PS_PRINT_SCALE; // v56: 1,4× größer
                                     wrap.style.transform = `scale(${pdfScale})`;
                                     wrap.style.transformOrigin = 'top center';
                                     wrap.style.opacity = '1';
@@ -12434,23 +12428,47 @@ const SHARE_OFFSET_Y_PX  = 0; // Share: keep at 0 (prevents page-cut) // Share: 
 
 
                     // ===== FINAL PDF-SHARE AUTO-FIT: Verkaufsmappe/Bundles nicht verzerren =====
-                    // v56 ABSCHNEIDE-FIX (eigentliche Ursache!):
-                    // Dieser Block hat zuvor die Wrap-Geometrie ZERSTÖRT:
-                    //   - el.style.width='100%' überschrieb die nötige width-Basis (100/scale %),
-                    //     wodurch der innere Inhalt (Tablet/SIM/Preis, feste Pixelbreiten) über die
-                    //     zu schmale Box hinausragte;
-                    //   - host overflow:hidden hat genau diesen Überstand abgeschnitten.
-                    // Da EXTRA=1.0 (neutral) ist, bringt der Block ohnehin keine Verkleinerung mehr.
-                    // Wir lassen die Wrap-Breite/Transform daher IN RUHE und schneiden NICHT mehr ab.
+                    // Problem: html2canvas/html2pdf rastern den Clone oft in echter Screen-DPI.
+                    // Importierte Bundle-HTML (Verkaufsmappe) kann dadurch zu groß wirken.
+                    // Lösung: Im Clone die Overlay-HTML gezielt "shrink-to-fit" + responsive Medien.
                     try{
+                        const EXTRA = 1.0; // v51: keine weitere Shrink-Skalierung, damit Overlay kräftig bleibt
                         doc.querySelectorAll('.offer-html-overlay-wrap').forEach(el=>{
                             try{
-                                // Nur Medien responsive halten – KEINE width/transform/overflow-Eingriffe mehr.
-                                el.querySelectorAll('img,svg,video').forEach(n=>{
+                                // 1) Transform scale(...) innerhalb "scale(x) rotate(...)" anpassen
+                                const t = String(el.style.transform||'');
+                                const m = t.match(/scale\(([^\)]+)\)/);
+                                if(m){
+                                    const s = parseFloat(m[1]);
+                                    if(!isNaN(s)){
+                                        const ns = (s * EXTRA);
+                                        el.style.transform = t.replace(/scale\([^\)]+\)/, `scale(${ns})`);
+                                    }
+                                } else if (t){
+                                    el.style.transform = `scale(${EXTRA}) ` + t;
+                                } else {
+                                    el.style.transform = `scale(${EXTRA})`;
+                                }
+
+                                // 2) Max-Breite enger, damit es garantiert in die Offer-Box passt
+                                el.style.maxWidth = '980px';
+                                el.style.width = '100%';
+                                el.style.boxSizing = 'border-box';
+                                el.style.paddingLeft = '6px';
+                                el.style.paddingRight = '6px';
+
+                                // 3) Medien-Elemente immer responsive
+                                el.querySelectorAll('img,svg,canvas,video').forEach(n=>{
                                     n.style.maxWidth = '100%';
                                     n.style.height = 'auto';
                                     n.style.objectFit = 'contain';
                                 });
+
+                                // 4) Nichts darf über den Canvas hinausragen
+                                const host = el.closest('.offer-canvas-container') || el.parentElement;
+                                if(host){
+                                    host.style.overflow = 'hidden';
+                                }
                             }catch(_){}
                         });
 
@@ -13465,10 +13483,7 @@ const makeOfferPage = (sourceOfferEl, offerIndex, offerTitles) => {
             const tw = String(htmlOverlayWrap.style.transform || '');
             const mw = tw.match(/scale\(([\d.]+)\)/);
             const baseScale = mw ? parseFloat(mw[1]) : 1;
-            // v56 FINALE LÖSUNG: Vergrößerung NUR auf Android (iPad lief sonst aus dem Bild).
-            var __uaC = navigator.userAgent || '';
-            var __iosC = /iPad|iPhone|iPod/.test(__uaC) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-            const newScale = __iosC ? baseScale : (baseScale * PS_PRINT_SCALE);
+            const newScale = baseScale * PS_PRINT_SCALE;
             if (mw) {
                 htmlOverlayWrap.style.setProperty('transform', tw.replace(/scale\([\d.]+\)/, 'scale(' + newScale + ')'), 'important');
             } else {
@@ -14571,6 +14586,116 @@ const handlePDFShare = async () => {
 };
 
 
+// ── ARCHIV: PDF speichern + vorausgefüllte Mail an Archiv-Postfach öffnen ──
+// Ablauf: PDF wird erzeugt & heruntergeladen → Mail-App öffnet mit fertiger Adresse + Betreff.
+// Mitarbeiter muss nur noch das eben gespeicherte PDF anhängen und auf Senden tippen.
+// Power Automate erkennt am Betreff, ob "abschluss" oder "angebot", und sortiert in den richtigen SharePoint-Ordner.
+const sendToArchive = async (archiveType) => {
+    // archiveType: 'abschluss' | 'angebot'
+    const _type = (archiveType === 'abschluss') ? 'abschluss' : 'angebot';
+
+    // ── Angebotsgültigkeit prüfen (gleiche Logik wie Druck/Teilen) ──
+    try {
+        const _hasOpen = hasOpenOfferNeedingValidity();
+        const _hasValText = hasOfferValidity();
+        if (_hasOpen && !_hasValText) {
+            pendingPrintRef.current = () => { sendToArchive(_type); };
+            setShowValidityModal(true);
+            return;
+        }
+    } catch(e) {}
+
+    // Rufnummer + Agent für Betreff/Dateiname
+    let _ruf = '';
+    try { _ruf = (textData?.Rufnummer || '').replace(/[^0-9+]/g, '').trim(); } catch(e) {}
+    let _agent = '';
+    try { _agent = getAgentDisplayNameForUpload(); if (_agent === '–') _agent = ''; } catch(e) {}
+    const _datum = new Date().toISOString().slice(0,10);
+
+    // Betreff nach festem Schema – DARAN sortiert Power Automate.
+    // Format:  PENCIL|abschluss|2026-06-27|491761234567|Diego
+    const _betreff = `PENCIL|${_type}|${_datum}|${_ruf || 'keine-nr'}|${_agent || 'unbekannt'}`;
+    const _dateiname = `${_type === 'abschluss' ? 'Abschluss' : 'Angebot'}_${_datum}_${_ruf || 'keineNr'}.pdf`;
+
+    const showOverlay2 = (msg) => {
+        let ov = document.getElementById('pdf-share-overlay');
+        if (!ov) {
+            ov = document.createElement('div');
+            ov.id = 'pdf-share-overlay';
+            ov.style.cssText = ['position:fixed','inset:0','z-index:99999','background:rgba(15,23,42,0.55)','backdrop-filter:blur(6px)','display:flex','align-items:center','justify-content:center','padding:16px'].join(';');
+            ov.innerHTML = `<div style="background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.25);padding:18px;min-width:260px;max-width:360px;text-align:center;font-family:Arial,Helvetica,sans-serif;"><div style="width:44px;height:44px;border-radius:999px;border:5px solid #e2e8f0;border-top-color:#16a34a;margin:0 auto 12px;animation:pspin 0.9s linear infinite;"></div><div id="pdf-share-overlay-text" style="font-weight:800;color:#0f172a;">${msg}</div><div style="margin-top:6px;font-size:12px;color:#64748b;">Bitte kurz warten…</div></div>`;
+            const st = document.createElement('style'); st.textContent='@keyframes pspin{to{transform:rotate(360deg)}}'; ov.appendChild(st);
+            document.body.appendChild(ov);
+        } else {
+            const t = ov.querySelector('#pdf-share-overlay-text'); if (t) t.textContent = msg; ov.style.display='flex';
+        }
+    };
+    const hideOverlay2 = () => { const ov=document.getElementById('pdf-share-overlay'); if(ov) ov.style.display='none'; };
+
+    let blob = null;
+    try {
+        if (!window.html2pdf) { try { triggerToast('PDF-Generator nicht verfügbar.'); } catch(e){} return; }
+        document.body.classList.add('exporting');
+        showOverlay2('Archiv-PDF wird erstellt …');
+        const _t = setTimeout(()=>{ try{hideOverlay2();}catch(e){} try{document.body.classList.remove('exporting');}catch(e){} }, 30000);
+        blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders, { addPageNumbers: true });
+        clearTimeout(_t);
+
+        const file = new File([blob], _dateiname, { type: 'application/pdf' });
+
+        // 1) PDF herunterladen/speichern, damit der Mitarbeiter es anhängen kann
+        const saveBlob = (b) => {
+            const url = URL.createObjectURL(b);
+            const a = document.createElement('a'); a.href=url; a.download=_dateiname;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(()=>URL.revokeObjectURL(url), 8000);
+        };
+
+        // 2) Auf Tablets mit Web Share zuerst Teilen anbieten (dort kann das PDF direkt mit angehängt werden)
+        const canShareFiles = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [file] }));
+        hideOverlay2();
+
+        if (canShareFiles) {
+            // Teilen-Dialog MIT PDF. Adresse kann der Mitarbeiter im Mail-Eintrag einsetzen
+            // (Betreff wird mitgegeben, Adresse vorausfüllen erlaubt der Browser hier leider nicht).
+            try {
+                await navigator.share({
+                    files: [file],
+                    title: _betreff,
+                    text: `Archiv – bitte an ${ARCHIV_EMAIL} senden.\nBetreff bitte unverändert lassen:\n${_betreff}`
+                });
+                try { triggerToast('Im Teilen-Dialog „Mail" wählen, Adresse ' + ARCHIV_EMAIL + ' eintragen, senden.'); } catch(e){}
+                return;
+            } catch (shareErr) {
+                if (shareErr && shareErr.name === 'AbortError') return; // abgebrochen
+                // sonst weiter zum Mail-Fallback
+            }
+        }
+
+        // 3) Fallback (Desktop / kein Web Share): PDF speichern + vorausgefüllte Mail öffnen
+        saveBlob(blob);
+        const _body = encodeURIComponent(
+            'Bitte das soeben gespeicherte PDF anhängen.\n\n' +
+            '(Betreff bitte unverändert lassen – wird automatisch einsortiert.)\n\n' +
+            'Datei: ' + _dateiname
+        );
+        const _subj = encodeURIComponent(_betreff);
+        const mailtoUrl = `mailto:${ARCHIV_EMAIL}?subject=${_subj}&body=${_body}`;
+        try { window.location.href = mailtoUrl; } catch(e) {
+            try { window.open(mailtoUrl, '_blank'); } catch(e2){}
+        }
+        try { triggerToast('Mail geöffnet – bitte das gespeicherte PDF anhängen und senden.'); } catch(e){}
+
+    } catch (err) {
+        hideOverlay2();
+        try { console.warn('Archiv-Versand fehlgeschlagen:', err); } catch(e){}
+        try { if (blob) { const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=_dateiname; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),8000); } } catch(e2){}
+        try { triggerToast('Archiv-PDF gespeichert – bitte manuell an ' + ARCHIV_EMAIL + ' senden.'); } catch(e){}
+    } finally {
+        hideOverlay2();
+        try { document.body.classList.remove('exporting'); } catch(e){}
+    }
+};
 
 
 
@@ -14851,11 +14976,16 @@ const handlePDFShare = async () => {
                 let __msisdn2 = rufnummerFromForm2;
                 try {
                     if (customerSignature) {
-                        const ms = window.prompt('📱 Rufnummer des Kunden für PDF-Dateiname:\n(Wird auch für den E-Mail-Betreff verwendet)', rufnummerFromForm2 || '');
-                        const cleanMs = (ms || '').replace(/[^0-9+]/g, '').trim();
-                        if (cleanMs) {
-                            __msisdn2 = cleanMs;
-                            __pdfName2 = `Angebot_${cleanMs}_${new Date().toISOString().slice(0,10)}.pdf`;
+                        // v57: Prompt nur wenn keine Rufnummer im Formular (iOS/Android-Tablet-Freeze vermeiden)
+                        if (!rufnummerFromForm2) {
+                            const ms = window.prompt('Rufnummer des Kunden fuer PDF-Dateiname:\n(Wird auch fuer den E-Mail-Betreff verwendet)', '');
+                            const cleanMs = (ms || '').replace(/[^0-9+]/g, '').trim();
+                            if (cleanMs) {
+                                __msisdn2 = cleanMs;
+                                __pdfName2 = `Angebot_${cleanMs}_${new Date().toISOString().slice(0,10)}.pdf`;
+                            }
+                        } else {
+                            __pdfName2 = `Angebot_${rufnummerFromForm2}_${new Date().toISOString().slice(0,10)}.pdf`;
                         }
                     }
                 } catch(e) {}
@@ -14963,7 +15093,7 @@ const handlePDFShare = async () => {
                             try { setDrawnStrokes(prev => ({ ...prev, offer_valid_until: [] })); } catch(e) {}
                         }
                     }} onPrint={() => { try { ensurePrintHeaders(); } catch(e) {} handlePrint(); }} onShare={handlePDFShare} onPdfPrint={handleRecommendedPdfPrint} onFinish={() => { setShowReferralModal(false); try { handleClearAll(); } catch(e) {} setTimeout(() => { try { window.location.reload(); } catch(e) {} }, 300); }} />
-                    <FinishTypeModal isOpen={showFinishTypeModal} onClose={() => setShowFinishTypeModal(false)} onSelect={handleFinishTypeSelection} onShare={handlePDFShare} onPdfPrint={handleRecommendedPdfPrint} />
+                    <FinishTypeModal isOpen={showFinishTypeModal} onClose={() => setShowFinishTypeModal(false)} onSelect={handleFinishTypeSelection} onShare={handlePDFShare} onPdfPrint={handleRecommendedPdfPrint} onArchive={sendToArchive} />
 
 
                     <OfferValidityModal
@@ -15682,7 +15812,7 @@ const handlePDFShare = async () => {
                                             ?<><select value={providerSelect} onChange={e=>{if(e.target.value==='Sonstiges'){setIsCustomProvider(true);setProviderSelect('Sonstiges');setProviderMode('keyboard');setShowProviderKeyboard(true);}else{setProviderSelect(e.target.value);setIsCustomProvider(false);setWlanRecommendation('');setSpeedRecommendation('');}}}
                                                 style={{width:'100%',height:'30px',background:'#f8fafc',border:`1.5px solid ${providerSelect?'#22c55e':'#f87171'}`,borderRadius:'8px',paddingLeft:'8px',paddingRight:'20px',fontSize:'10px',fontWeight:600,color:'#374151',outline:'none',appearance:'none',cursor:'pointer'}}>
                                                 <option value="" disabled hidden>DSL-Anbieter *</option>
-                                                <option selected>Telekom</option><option>1&1</option><option>Vodafone</option><option>O2</option><option value="Sonstiges">Sonstiges</option>
+                                                <option value="Telekom">Telekom</option><option value="1&1">1&1</option><option value="Vodafone">Vodafone</option><option value="O2">O2</option><option value="Sonstiges">Sonstiges</option>
                                             </select>
                                             <svg style={{position:'absolute',right:'6px',top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}} width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg></>
                                             :<div style={{display:'flex',alignItems:'center',height:'30px',border:'1.5px solid #22c55e',borderRadius:'8px',background:'#f0fdf4',overflow:'hidden',position:'relative'}}>
@@ -16862,10 +16992,7 @@ const handlePDFShare = async () => {
                                 const tw = String(overlayWrap.style.transform || '');
                                 const mw = tw.match(/scale\(([\d.]+)\)/);
                                 const baseScale = mw ? parseFloat(mw[1]) : 1;
-                                // v56 FINALE LÖSUNG: Vergrößerung NUR auf Android (iPad lief sonst aus dem Bild).
-                                var __uaB = navigator.userAgent || '';
-                                var __iosB = /iPad|iPhone|iPod/.test(__uaB) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-                                const newScale = __iosB ? baseScale : (baseScale * PS_PRINT_SCALE);
+                                const newScale = baseScale * PS_PRINT_SCALE;
                                 if (mw) {
                                     overlayWrap.style.setProperty('transform', tw.replace(/scale\([\d.]+\)/, 'scale(' + newScale + ')'), 'important');
                                 } else {
