@@ -14624,7 +14624,7 @@ const sendToArchive = async (archiveType) => {
 
         const file = new File([blob], _dateiname, { type: 'application/pdf' });
 
-        // 1) PDF herunterladen/speichern, damit der Mitarbeiter es anhängen kann
+        // PDF herunterladen/speichern (Fallback / Sicherung)
         const saveBlob = (b) => {
             const url = URL.createObjectURL(b);
             const a = document.createElement('a'); a.href=url; a.download=_dateiname;
@@ -14634,8 +14634,29 @@ const sendToArchive = async (archiveType) => {
 
         hideOverlay2();
 
-        // PDF speichern, dann IMMER vorausgefüllte Outlook-Mail an Aalen öffnen.
-        // (Browser dürfen das PDF nicht automatisch anhängen – das macht der Mitarbeiter mit 1 Tipp.)
+        // PRIMÄR: Web Share – das PDF ist dann automatisch als Anhang dabei.
+        // Der Mitarbeiter wählt nur "Mail/Outlook" und trägt die Aalener Adresse ein.
+        const canShareFiles = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [file] }));
+        if (canShareFiles) {
+            try {
+                await navigator.share({
+                    files: [file],
+                    title: _betreff,
+                    text: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${_betreff}`
+                });
+                try { triggerToast('„Mail/Outlook" wählen → Adresse ' + ARCHIV_EMAIL + ' eintragen → senden. PDF ist bereits angehängt.'); } catch(e){}
+                return;
+            } catch (shareErr) {
+                if (shareErr && shareErr.name === 'AbortError') {
+                    // Mitarbeiter hat den Teilen-Dialog abgebrochen – PDF trotzdem speichern als Sicherung
+                    try { saveBlob(blob); } catch(e){}
+                    return;
+                }
+                // sonst: weiter zum mailto-Fallback unten
+            }
+        }
+
+        // FALLBACK (z. B. Desktop ohne Web Share): PDF speichern + vorausgefüllte Mail öffnen
         saveBlob(blob);
         const _body = encodeURIComponent(
             'Bitte das soeben gespeicherte PDF anhängen und senden.\n\n' +
@@ -14644,7 +14665,6 @@ const sendToArchive = async (archiveType) => {
         );
         const _subj = encodeURIComponent(_betreff);
         const mailtoUrl = `mailto:${ARCHIV_EMAIL}?subject=${_subj}&body=${_body}`;
-        // kurze Verzögerung, damit der Download zuerst startet, dann die Mail
         setTimeout(() => {
             try { window.location.href = mailtoUrl; } catch(e) {
                 try { window.open(mailtoUrl, '_blank'); } catch(e2){}
