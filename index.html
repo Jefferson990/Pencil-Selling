@@ -9587,6 +9587,7 @@ const handleOpenStats = () => { setShowPinLock(true); };
             const [showValidityModal, setShowValidityModal] = useState(false);
             const pendingPrintRef = useRef(null);
             const archiveSentRef = useRef(false); // verhindert doppeltes Auto-Archivieren pro Vorgang
+            const sharedMsisdnRef = useRef(''); // einmal eingegebene Rufnummer für Druck + Archiv
             const offerValidityOverrideRef = useRef(''); // PATCH v8: hält das frisch gespeicherte Datum sofort synchron, bevor React-State neu gerendert hat
 
             // Zentrale Prüfung: Sobald irgendein Angebot ROT/Offen ist, darf kein Druck/PDF starten,
@@ -10745,6 +10746,8 @@ const handleFinishOfferClick = () => {
                             __pdfName = `Angebot_${rufnummerFromForm}_${new Date().toISOString().slice(0,10)}.pdf`;
                         }
                     } catch(e) {}
+                    // Rufnummer global merken, damit sendToArchive sie wiederbenutzen kann (kein 2. Prompt)
+                    if (__msisdn) sharedMsisdnRef.current = __msisdn;
                     if (!runOnlyWithOfferValidity(() => {
                         triggerToast('PDF wird erstellt… einen Moment.');
                         createPrintLookPdfBlob(triggerToast, ensurePrintHeaders).then((blob) => {
@@ -10811,6 +10814,7 @@ const handleFinishOfferClick = () => {
             const handleFinishTypeSelection = (type) => {
                 setShowFinishTypeModal(false);
                 archiveSentRef.current = false; // neuer Vorgang → Archiv darf wieder feuern
+                sharedMsisdnRef.current = ''; // Rufnummer zurücksetzen
 
                 // v48.1: Nach Fertigstellen (egal ob Abschluss oder Angebot) das ggf. geladene
                 // Angebot aus dem lokalen Speicher entfernen – es ist fertig bearbeitet (+ als PDF
@@ -14587,8 +14591,9 @@ const sendToArchive = async (archiveType) => {
     }
 
     // Rufnummer + Agent für Betreff/Dateiname
+    // Rufnummer: zuerst die im Druck-Flow eingegebene (sharedMsisdnRef), dann Formular, dann leer
     let _ruf = '';
-    try { _ruf = (textData?.Rufnummer || '').replace(/[^0-9+]/g, '').trim(); } catch(e) {}
+    try { _ruf = sharedMsisdnRef.current || (textData?.Rufnummer || '').replace(/[^0-9+]/g, '').trim(); } catch(e) {}
     let _agent = '';
     try { _agent = getAgentDisplayNameForUpload(); if (_agent === '–') _agent = ''; } catch(e) {}
     const _datum = new Date().toISOString().slice(0,10);
@@ -14975,6 +14980,8 @@ const sendToArchive = async (archiveType) => {
                         }
                     }
                 } catch(e) {}
+                // Rufnummer global merken für sendToArchive
+                if (__msisdn2) sharedMsisdnRef.current = __msisdn2;
                 triggerToast('PDF wird erstellt… einen Moment.');
                 try {
                     const blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders);
