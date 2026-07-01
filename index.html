@@ -181,6 +181,7 @@
         html.dark-mode .bg-blue-50 { background-color: #1c2d40 !important; }
         html.dark-mode .text-slate-800,
         html.dark-mode .text-\[#0b1e42\],
+        html.dark-mode .ps-main-title,
         html.dark-mode .text-slate-900 { color: var(--dm-text) !important; }
         html.dark-mode .text-slate-700,
         html.dark-mode .text-slate-600 { color: var(--dm-text2) !important; }
@@ -7396,7 +7397,7 @@ const highResHTML = buildHighResBundleHTML(d);
             );
         };
 
-        const StatsModal = ({ isOpen, onClose, onOpenAdmin }) => {
+        const StatsModal = ({ isOpen, onClose, onOpenAdmin, employeeMode = false, lockedAgent = '' }) => {
             const resolveUserName = (raw) => {
                 const s = (raw == null) ? '' : String(raw).trim();
                 if (!s || s === 'Max Mustermann' || s.toLowerCase() === 'unknown' || s === 'Unbekannt') return '–';
@@ -7405,11 +7406,16 @@ const highResHTML = buildHighResBundleHTML(d);
 
             const [fbRows, setFbRows] = useState(null);
             const [fbLoading, setFbLoading] = useState(false);
-            const [selectedAgent, setSelectedAgent] = useState('__all__');
-            const [activeTab, setActiveTab] = useState('uebersicht');
+            const [selectedAgent, setSelectedAgent] = useState(employeeMode ? (lockedAgent || '__all__') : '__all__');
+            const [activeTab, setActiveTab] = useState(employeeMode ? 'coaching' : 'uebersicht');
             const [skipAgentsData, setSkipAgentsData] = useState({}); // { agentName: {count, limit} }
             const [range, setRange] = useState('31');
-            const isDiegoAdmin = (LINK_EMPLOYEE === 'Diego da Silva');
+            const isDiegoAdmin = (!employeeMode && LINK_EMPLOYEE === 'Diego da Silva');
+
+            // Im Mitarbeiter-Modus IMMER auf den eigenen Namen gesperrt
+            useEffect(() => {
+                if (employeeMode && lockedAgent) setSelectedAgent(lockedAgent);
+            }, [employeeMode, lockedAgent, isOpen]);
 
             useEffect(() => {
                 if (!isOpen) return;
@@ -7632,9 +7638,9 @@ const highResHTML = buildHighResBundleHTML(d);
                         <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
                             <div style={{width:'40px',height:'40px',borderRadius:'12px',background:'rgba(255,255,255,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'20px',flexShrink:0}}>📊</div>
                             <div>
-                                <div style={{color:'#fff',fontWeight:900,fontSize:'16px',letterSpacing:'-0.02em'}}>Statistik & Auswertung</div>
+                                <div style={{color:'#fff',fontWeight:900,fontSize:'16px',letterSpacing:'-0.02em'}}>{employeeMode ? 'Meine Statistik' : 'Statistik & Auswertung'}</div>
                                 <div style={{color:'rgba(255,255,255,0.55)',fontSize:'11px',fontWeight:500,marginTop:'1px'}}>
-                                    {fbLoading?'⏳ Lade Daten...':fbRows!==null?`🔥 ${rows.length} Vorgänge · Live`:'⚠️ Firebase nicht erreichbar'}
+                                    {employeeMode ? (fbLoading?'⏳ Lade meine Daten...':fbRows!==null?`🔥 Deine Vorgänge · Live`:'⚠️ Firebase nicht erreichbar') : (fbLoading?'⏳ Lade Daten...':fbRows!==null?`🔥 ${rows.length} Vorgänge · Live`:'⚠️ Firebase nicht erreichbar')}
                                 </div>
                             </div>
                         </div>
@@ -7646,22 +7652,30 @@ const highResHTML = buildHighResBundleHTML(d);
 
                     {/* Mitarbeiter Dropdown + Zeitraum + Export */}
                     <div style={{background:'#fff',padding:'10px 16px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap',flexShrink:0}}>
-                        <select value={selectedAgent} onChange={e=>{setSelectedAgent(e.target.value);}}
-                            style={{flex:'1 1 160px',border:'1.5px solid #e2e8f0',borderRadius:'8px',padding:'7px 10px',fontSize:'13px',fontWeight:700,color:'#1e293b',background:'#f8fafc',outline:'none',cursor:'pointer'}}>
-                            <option value="__all__">👥 Alle Mitarbeiter</option>
-                            {allAgents.map(a=><option key={a} value={a}>{a}</option>)}
-                        </select>
+                        {employeeMode ? (
+                            <div style={{flex:'1 1 160px',border:'1.5px solid #d1fae5',borderRadius:'8px',padding:'7px 12px',fontSize:'13px',fontWeight:800,color:'#065f46',background:'#f0fdf4',display:'flex',alignItems:'center',gap:'6px'}}>
+                                <span>👤</span> {lockedAgent || 'Ich'}
+                            </div>
+                        ) : (
+                            <select value={selectedAgent} onChange={e=>{setSelectedAgent(e.target.value);}}
+                                style={{flex:'1 1 160px',border:'1.5px solid #e2e8f0',borderRadius:'8px',padding:'7px 10px',fontSize:'13px',fontWeight:700,color:'#1e293b',background:'#f8fafc',outline:'none',cursor:'pointer'}}>
+                                <option value="__all__">👥 Alle Mitarbeiter</option>
+                                {allAgents.map(a=><option key={a} value={a}>{a}</option>)}
+                            </select>
+                        )}
                         <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
                             {[{id:'7',label:'7T'},{id:'31',label:'31T'},{id:'90',label:'90T'},{id:'180',label:'6M'},{id:'all',label:'Gesamt'}].map(r=>(
                                 <button key={r.id} onClick={()=>setRange(r.id)} style={{padding:'5px 10px',borderRadius:'999px',fontSize:'11px',fontWeight:700,border:`1.5px solid ${range===r.id?'#2563eb':'#e2e8f0'}`,background:range===r.id?'#2563eb':'#fff',color:range===r.id?'#fff':'#64748b',cursor:'pointer'}}>{r.label}</button>
                             ))}
                         </div>
+                        {!employeeMode && (
                         <div style={{marginLeft:'auto',display:'flex',gap:'5px'}}>
                             <button onClick={exportCoachingCSV} style={{padding:'5px 11px',borderRadius:'8px',fontSize:'11px',fontWeight:700,background:'#059669',color:'#fff',border:'none',cursor:'pointer'}}>⬇ CSV</button>
                             {isDiegoAdmin && <button onClick={exportSkipReasonsCSV} style={{padding:'5px 11px',borderRadius:'8px',fontSize:'11px',fontWeight:700,background:'#2563eb',color:'#fff',border:'none',cursor:'pointer'}}>⬇ Gründe</button>}
                             <button onClick={exportAnalyticsJSON} style={{padding:'5px 11px',borderRadius:'8px',fontSize:'11px',fontWeight:700,background:'#fff',color:'#475569',border:'1.5px solid #e2e8f0',cursor:'pointer'}}>⬇ JSON</button>
                             <button onClick={handleClear} style={{padding:'5px 11px',borderRadius:'8px',fontSize:'11px',fontWeight:700,background:'#fff',color:'#ef4444',border:'1.5px solid #fecaca',cursor:'pointer'}}>🗑</button>
                         </div>
+                        )}
                     </div>
 
                     {/* Tabs */}
@@ -9172,14 +9186,12 @@ const ParkedArchiveModal = ({ onClose, onResume, refreshTrigger }) => {
 function App() {
             const [view, setView] = useState('situation');
             const [showArchivPopup, setShowArchivPopup] = useState(false);
-            const [darkMode, setDarkMode] = useState(() => {
-                try { return localStorage.getItem('dm') === '1'; } catch(e) { return false; }
-            });
+            const [darkMode, setDarkMode] = useState(false); // Darkmode-Umschalter ausgeblendet – immer hell
             useEffect(() => {
-                if (darkMode) { document.documentElement.classList.add('dark-mode'); }
-                else { document.documentElement.classList.remove('dark-mode'); }
-                try { localStorage.setItem('dm', darkMode ? '1' : '0'); } catch(e) {}
-            }, [darkMode]);
+                // Sicherstellen, dass kein alter Darkmode-Zustand vom Tablet hängen bleibt
+                try { document.documentElement.classList.remove('dark-mode'); } catch(e) {}
+                try { localStorage.setItem('dm', '0'); } catch(e) {}
+            }, []);
             
             const [showSecondYear, setShowSecondYear] = useState(false);
             // Druck-Option: AUS = klassische 2 Seiten, AN = Seite 3 mit Kosten + Empfehlungen
@@ -9584,6 +9596,7 @@ const toolRef = useRef('pen');
             const [showAdmin, setShowAdmin] = useState(false);
             const [showStats, setShowStats] = useState(false);
             const [showPinLock, setShowPinLock] = useState(false);
+            const [showMyStats, setShowMyStats] = useState(false); // Mitarbeiter-eigene Coaching-Ansicht
 
             
 // ===== Bundle IFrame (extern) =====
@@ -15487,6 +15500,7 @@ const resumeParkedArchive = async (entry, rufValue) => {
 {LINK_EMPLOYEE === 'Diego da Silva' && <AdminSafeBoundary onClose={()=>setShowAdmin(false)}><AdminModal isOpen={showAdmin} onClose={()=>setShowAdmin(false)} questions={questionsData} onUpdate={handleUpdateQuestions} oneDriveLink={oneDriveLink} onUpdateLink={setOneDriveLink} /></AdminSafeBoundary>}
                     <PinLockModal isOpen={showPinLock} onClose={()=>setShowPinLock(false)} onSuccess={()=>{ setShowPinLock(false); setShowStats(true); }} />
                     <AdminSafeBoundary onClose={()=>setShowStats(false)}><StatsModal isOpen={showStats} onClose={()=>setShowStats(false)} onOpenAdmin={()=>{ if (LINK_EMPLOYEE === 'Diego da Silva') { setShowStats(false); setShowAdmin(true); } }} /></AdminSafeBoundary>
+                    <AdminSafeBoundary onClose={()=>setShowMyStats(false)}><StatsModal isOpen={showMyStats} onClose={()=>setShowMyStats(false)} employeeMode={true} lockedAgent={LINK_EMPLOYEE || ''} /></AdminSafeBoundary>
 
                     {/* 💾 Überschreiben-Dialog (v48.3) – wenn diese Session schon gespeichert wurde */}
                     {showOverwriteDialog && ReactDOM.createPortal(
@@ -15603,13 +15617,13 @@ const resumeParkedArchive = async (entry, rufValue) => {
                         setTimeout(() => setShowReferralModal(true), 300);
                     }} />
 
-                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v49.3</span>{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button><button onClick={() => setShowArchivPopup(true)} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full hover:bg-indigo-50 transition-colors relative" title={parkedCount > 0 ? `Archiv öffnen – ${parkedCount} geparkte Angebote warten!` : "Archiv öffnen – gespeicherte Pencil Sellings abrufen"} style={{fontSize:'18px',lineHeight:1}}>🗂️{parkedCount > 0 && <span style={{position:'absolute',top:'2px',right:'2px',minWidth:'16px',height:'16px',padding:'0 3px',borderRadius:'999px',background:'#ef4444',color:'#fff',fontSize:'10px',fontWeight:900,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1,boxShadow:'0 0 0 2px #fff',pointerEvents:'none'}}>{parkedCount > 9 ? '9+' : parkedCount}</span>}</button>
+                    <header className="bg-white px-4 py-2 border-b border-slate-200 flex items-center gap-3 shrink-0 shadow-sm z-30 relative h-16 w-full"><div className="print-hide-toast" style={{display:"flex",alignItems:"center",gap:4,marginRight:4,cursor:"default"}} title="Autosave aktiv – alle 30s gesichert"><div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/><span style={{fontSize:9,fontWeight:700,color:"#94a3b8",letterSpacing:"0.04em",userSelect:"none"}}>AUTO</span></div><span style={{fontSize:8,fontWeight:700,color:'#cbd5e1',letterSpacing:'0.05em',userSelect:'none',pointerEvents:'none',marginLeft:'-8px',marginRight:'2px'}}>v49.6</span>{LINK_EMPLOYEE && LINK_EMPLOYEE !== 'Diego da Silva' && <button onClick={() => setShowMyStats(true)} className="p-2 text-slate-400 hover:text-emerald-600 rounded-full hover:bg-emerald-50 transition-colors" title="Meine Statistik – Qualität & Vorgänge ansehen"><Icon d={ICONS.Activity} size={18}/></button>}{LINK_EMPLOYEE === 'Diego da Silva' && <button onClick={handleOpenStats} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="📊 Statistik & Admin"><Icon d={ICONS.Lock} size={18}/></button>}<button onClick={toggleFullScreen} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Vollbild umschalten (wie F11)">{isFullscreen ? <Icon d={ICONS.Minimize} size={18}/> : <Icon d={ICONS.Maximize} size={18}/>}</button><button onClick={() => setShowArchivPopup(true)} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full hover:bg-indigo-50 transition-colors relative" title={parkedCount > 0 ? `Archiv öffnen – ${parkedCount} geparkte Angebote warten!` : "Archiv öffnen – gespeicherte Pencil Sellings abrufen"}><Icon d={ICONS.Folder} size={18}/>{parkedCount > 0 && <span style={{position:'absolute',top:'0px',right:'0px',minWidth:'15px',height:'15px',padding:'0 3px',borderRadius:'999px',background:'#ef4444',color:'#fff',fontSize:'9px',fontWeight:900,display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1,boxShadow:'0 0 0 2px #fff',pointerEvents:'none'}}>{parkedCount > 9 ? '9+' : parkedCount}</span>}</button>
                     
-                    <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
+                    {false && <button onClick={() => setDarkMode(d => !d)} className="dark-toggle-btn" title="Hell/Dunkel umschalten">
                         <div className={`dark-toggle-track ${darkMode ? 'on' : ''}`}><div className="dark-toggle-thumb"></div></div>
                         <span>{darkMode ? '🌙' : '☀️'}</span>
-                    </button>
-                    <h1 className="text-2xl font-black text-[#0b1e42] tracking-tighter flex-1 min-w-0 overflow-hidden" style={{whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{view === 'situation' ? 'Ihre Aktuelle Situation' : 'Ihr Persönliches Angebot'}</h1>
+                    </button>}
+                    <h1 className="ps-main-title text-2xl font-black text-[#0b1e42] tracking-tighter flex-1 min-w-0 overflow-hidden" style={{whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{view === 'situation' ? 'Ihre Aktuelle Situation' : 'Ihr Persönliches Angebot'}</h1>
                     {/* Beratungs-ID — nur im Offer-View im Header */}
                     {view === 'offer' && (
                         <div style={{display:'flex',alignItems:'center',gap:'5px',flexShrink:0,marginRight:'4px'}}>
