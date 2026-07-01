@@ -15085,19 +15085,34 @@ const sendToArchive = async (archiveType) => {
                                 setTimeout(() => { try { sendToArchive(_typ); } catch(e) {} }, 250);
                             }
                         }
-                    }} onPrint={() => { try { ensurePrintHeaders(); } catch(e) {} handlePrint(); }} onShare={handlePDFShare} onPdfPrint={handleRecommendedPdfPrint} onFinish={async () => {
+                    }} onPrint={() => { try { ensurePrintHeaders(); } catch(e) {} handlePrint(); }} onShare={handlePDFShare} onPdfPrint={handleRecommendedPdfPrint} onFinish={() => {
                         setShowReferralModal(false);
-                        // 1) Erst archivieren und WARTEN bis PDF erstellt + Mail geöffnet wurde
+                        const doReload = () => {
+                            try { handleClearAll(); } catch(e) {}
+                            try { clearAutosave(); } catch(e) {}
+                            try { window.__psIntentionalReload = true; window.location.reload(); } catch(e) {}
+                        };
                         if (!archiveSentRef.current) {
                             archiveSentRef.current = true;
                             const _typ = customerSignature ? 'abschluss' : 'angebot';
-                            try { await sendToArchive(_typ); } catch(e) {}
+                            // Archiv anstoßen (Teilen-Dialog). NICHT awaiten – sonst hängt Android.
+                            try { sendToArchive(_typ); } catch(e) {}
+                            // Sicherheits-Reload nach 60s, falls der Nutzer den Teilen-Dialog
+                            // gar nicht mehr schließt. Normal lädt visibilitychange früher neu.
+                            let _done = false;
+                            const _finish = () => { if (_done) return; _done = true; doReload(); };
+                            const _onVis = () => {
+                                if (document.visibilityState === 'visible') {
+                                    document.removeEventListener('visibilitychange', _onVis);
+                                    // kurz warten, damit die App sauber zurück ist, dann neu laden
+                                    setTimeout(_finish, 800);
+                                }
+                            };
+                            document.addEventListener('visibilitychange', _onVis);
+                            setTimeout(_finish, 60000);
+                        } else {
+                            setTimeout(doReload, 300);
                         }
-                        // 2) Daten leeren, damit beim Neuladen KEIN "Seite verlassen?"-Dialog kommt
-                        try { handleClearAll(); } catch(e) {}
-                        try { clearAutosave(); } catch(e) {}
-                        // 3) Etwas Luft lassen, dann sauber neu laden (ohne Warndialog)
-                        setTimeout(() => { try { window.__psIntentionalReload = true; window.location.reload(); } catch(e) {} }, 1200);
                     }} />
                     <FinishTypeModal isOpen={showFinishTypeModal} onClose={() => setShowFinishTypeModal(false)} onSelect={handleFinishTypeSelection} onShare={handlePDFShare} onPdfPrint={handleRecommendedPdfPrint} />
 
