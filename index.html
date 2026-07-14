@@ -9202,6 +9202,55 @@ const RufnummerOrParkModal = ({ onSubmit, onPark }) => {
     );
 };
 
+// ── v57: KUNDENNAME-POPUP (nur beim ANGEBOT, ohne Unterschrift) ──
+// Hintergrund: Beim Abschluss haben wir die Rufnummer. Beim reinen Angebot nicht –
+// und der Kundenname steht nur handschriftlich auf dem Canvas, ist also nicht
+// durchsuchbar. Wenn der Kunde nach ~20 Tagen zurückkommt, muss Diego das Angebot
+// wiederfinden. Darum: Name (getippt) + automatisches Datum → Dateiname & Betreff.
+const KundennameModal = ({ onSubmit, onCancel, defaultValue = '' }) => {
+    const [val, setVal] = React.useState(defaultValue || '');
+    const ok = val.trim().length >= 2;
+    return (
+        <div style={{position:'fixed',inset:0,zIndex:10500,background:'rgba(15,23,42,0.65)',backdropFilter:'blur(4px)',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+            <div style={{background:'#fff',width:'100%',maxWidth:'380px',borderRadius:'20px',boxShadow:'0 24px 60px rgba(0,0,0,0.35)',overflow:'hidden'}}>
+                <div style={{background:'linear-gradient(135deg,#2563eb,#1d4ed8)',padding:'20px',textAlign:'center'}}>
+                    <div style={{fontSize:'26px',marginBottom:'6px'}}>🧑‍💼</div>
+                    <h4 style={{fontSize:'17px',fontWeight:900,color:'#fff',margin:0}}>Kundenname</h4>
+                    <p style={{fontSize:'12px',color:'rgba(255,255,255,0.75)',marginTop:'4px',marginBottom:0}}>Für PDF-Dateiname &amp; Archiv – zum Wiederfinden</p>
+                </div>
+                <div style={{padding:'20px'}}>
+                    <input
+                        type="text"
+                        autoFocus
+                        value={val}
+                        onChange={e => setVal(e.target.value)}
+                        placeholder="z.B. Mustermann, Max"
+                        autoComplete="off"
+                        autoCapitalize="words"
+                        style={{width:'100%',padding:'14px 16px',fontSize:'16px',borderRadius:'12px',border:'2px solid #e2e8f0',outline:'none',marginBottom:'14px',boxSizing:'border-box'}}
+                        onKeyDown={e => { if (e.key === 'Enter' && ok) onSubmit(val.trim()); }}
+                    />
+                    <button
+                        onClick={() => ok && onSubmit(val.trim())}
+                        disabled={!ok}
+                        style={{width:'100%',padding:'14px',borderRadius:'12px',border:'none',background: ok ? 'linear-gradient(135deg,#2563eb,#1d4ed8)' : '#e2e8f0',color: ok ? '#fff' : '#94a3b8',fontWeight:900,fontSize:'15px',cursor: ok ? 'pointer' : 'not-allowed',marginBottom:'10px'}}>
+                        ✅ Weiter &amp; PDF erstellen
+                    </button>
+                    <div style={{display:'flex',alignItems:'flex-start',gap:'6px',padding:'8px 10px',borderRadius:'10px',background:'#eff6ff',border:'1px solid #bfdbfe',marginBottom:'10px'}}>
+                        <span style={{fontSize:'13px',flexShrink:0}}>💡</span>
+                        <span style={{fontSize:'10.5px',color:'#1e40af',lineHeight:1.35,fontWeight:600}}>Nachname reicht. Das Datum wird automatisch ergänzt – so findest du das Angebot später sofort wieder.</span>
+                    </div>
+                    <button
+                        onClick={onCancel}
+                        style={{width:'100%',padding:'10px',borderRadius:'12px',border:'none',background:'transparent',color:'#94a3b8',fontWeight:700,fontSize:'12.5px',cursor:'pointer'}}>
+                        Abbrechen
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // ── Geparkte Angebote: Liste + Nummer nachtragen ──
 const ParkedArchiveModal = ({ onClose, onResume, refreshTrigger }) => {
     const [entries, setEntries] = React.useState(null); // null = lädt
@@ -10114,6 +10163,38 @@ const handleOpenStats = () => { setShowPinLock(true); };
                 setRufModalAllowPark(allowPark);
                 rufModalResolveRef.current = resolve;
                 setRufModalOpen(true);
+            });
+
+            // ── v57: Kundenname-Abfrage (nur beim ANGEBOT, ohne Unterschrift) ──
+            const sharedKundeRef = useRef(''); // einmal eingegebener Kundenname für PDF + Archiv
+            const [kundeModalOpen, setKundeModalOpen] = useState(false);
+            const kundeModalResolveRef = useRef(null);
+            const askKundenname = () => new Promise((resolve) => {
+                kundeModalResolveRef.current = resolve;
+                setKundeModalOpen(true);
+            });
+
+            // ══════════════════════════════════════════════════════════════════
+            // v57b: UNIVERSELLER TEILEN-DIALOG ("PDF ist fertig → Jetzt teilen")
+            // ──────────────────────────────────────────────────────────────────
+            // Warum: navigator.share() braucht eine FRISCHE Nutzer-Geste. Nach dem
+            // 30–90 Sek. langen PDF-Rendern ist die vom ersten Tipp abgelaufen →
+            // auf iPad/Android passiert sonst gar nichts. Lösung: Nach dem Rendern
+            // diesen Dialog zeigen. Der Tipp auf "Jetzt teilen" ist eine NEUE Geste
+            // → das native Teilen-Menü (WhatsApp/Mail/Outlook) öffnet zuverlässig.
+            // ══════════════════════════════════════════════════════════════════
+            const [shareSheet, setShareSheet] = useState(null); // { file, title, subtitle, shareText, resolve }
+            const openShareSheet = ({ blob, filename, title, subtitle, shareText }) => new Promise((resolve) => {
+                let file = null;
+                try { file = new File([blob], filename, { type: 'application/pdf' }); } catch(e) { file = null; }
+                if (!file) { resolve(false); return; }
+                setShareSheet({
+                    file,
+                    title: title || 'PDF ist fertig!',
+                    subtitle: subtitle || 'Jetzt mit dem Kunden teilen oder öffnen.',
+                    shareText: shareText || 'Ihr persönliches Angebot',
+                    resolve
+                });
             });
             const [showParkedList, setShowParkedList] = useState(false);
             const [parkedCount, setParkedCount] = useState(0);
@@ -11309,28 +11390,23 @@ const isOfferAreaNonEmpty = React.useCallback((k) => {
                 const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
                 if (isIOS) {
+                    // v57b: Nach dem Rendern den Teilen-Dialog zeigen. Dessen Tap ist
+                    // eine frische Geste → natives Teilen-Menü öffnet zuverlässig.
                     (async () => {
                         try {
                             if (!window.html2pdf) { triggerToast('PDF-Generator fehlt.'); return; }
                             triggerToast('PDF wird erstellt… einen Moment.');
                             const blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders);
-                            const pdfFileName = `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
-                            if (navigator.canShare && navigator.canShare({ files: [new File([blob], pdfFileName, { type: 'application/pdf' })] })) {
-                                try {
-                                    await navigator.share({ title: 'Angebot', text: 'Ihr persönliches Angebot', files: [new File([blob], pdfFileName, { type: 'application/pdf' })] });
-                                    triggerToast('✅ PDF geteilt.');
-                                } catch(shareErr) {
-                                    if (shareErr.name !== 'AbortError') {
-                                        const url = URL.createObjectURL(blob);
-                                        window.open(url, '_blank');
-                                        setTimeout(() => URL.revokeObjectURL(url), 120000);
-                                    }
-                                }
-                            } else {
-                                const url = URL.createObjectURL(blob);
-                                window.open(url, '_blank');
-                                setTimeout(() => URL.revokeObjectURL(url), 120000);
-                            }
+                            const pdfFileName = (typeof buildPdfFileName === 'function')
+                                ? buildPdfFileName()
+                                : `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
+                            await openShareSheet({
+                                blob,
+                                filename: pdfFileName,
+                                title: 'PDF ist fertig!',
+                                subtitle: 'Jetzt mit dem Kunden teilen oder öffnen.',
+                                shareText: 'Ihr persönliches Angebot vom o2 Shop Aalen'
+                            });
                         } catch(e) { triggerToast('PDF-Fehler: ' + (e && e.message ? e.message : 'Unbekannt')); }
                     })();
                     return;
@@ -11400,7 +11476,7 @@ const ensureRufnummerBeforePdf = async () => {
         await parkArchiveEntry({
             id: 'park_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
             ts: Date.now(), type: _type, agent: _agent, datum: _datum,
-            kunde: (textData?.Kundenname || '').toString().trim(),
+            kunde: (sharedKundeRef.current || textData?.Kundenname || '').toString().trim(), // v57: getippter Name bevorzugt
             dateiname: `${_type === 'abschluss' ? 'Abschluss' : 'Angebot'}_${_datum}.pdf`,
             pdfBlob: blob
         });
@@ -11408,6 +11484,75 @@ const ensureRufnummerBeforePdf = async () => {
         try { refreshParkedCount(); } catch(e){}
     } catch(e) { try { triggerToast('Parken fehlgeschlagen – bitte Nummer direkt eingeben.'); } catch(_){} }
     return { proceed: false, park: true };
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// v57: KUNDENNAME VOR DEM ANGEBOTS-PDF
+// ──────────────────────────────────────────────────────────────────────────
+// Beim ABSCHLUSS fragen wir die Rufnummer (bleibt unverändert).
+// Beim reinen ANGEBOT (keine Unterschrift) gab es bisher GAR KEINE Abfrage →
+// die PDFs hießen alle gleich und waren im Archiv nicht wiederauffindbar.
+// Jetzt: Name eingeben (Pflicht, wie bei der Rufnummer) → Name + Datum landen
+// in Dateiname und Archiv-Betreff. Kunde kommt nach ~20 Tagen zurück → suchbar.
+// ══════════════════════════════════════════════════════════════════════════
+
+// Name für Dateinamen/Betreff säubern (keine Umlaut-/Sonderzeichen-Probleme)
+const cleanKundeName = (s) => {
+    try {
+        return String(s || '')
+            .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue')
+            .replace(/Ä/g,'Ae').replace(/Ö/g,'Oe').replace(/Ü/g,'Ue').replace(/ß/g,'ss')
+            .replace(/[^A-Za-z0-9 \-]/g, ' ')   // nur sichere Zeichen
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/ /g, '-')                  // Leerzeichen → Bindestrich
+            .slice(0, 40);
+    } catch(e) { return ''; }
+};
+
+// Rückgabe: { proceed:true, name:'...' } → weitermachen
+//           { proceed:false }            → Nutzer hat abgebrochen, KEIN PDF
+const ensureKundennameBeforePdf = async () => {
+    // Schon vorhanden? (vorher eingegeben oder im Formular getippt) → nicht nochmal fragen
+    let vorhanden = '';
+    try { vorhanden = (sharedKundeRef.current || (textData?.Kundenname || '')).toString().trim(); } catch(e) {}
+    if (vorhanden) { sharedKundeRef.current = vorhanden; return { proceed: true, name: vorhanden }; }
+
+    let decision = '';
+    try { decision = await askKundenname(); } catch(e) { decision = ''; }
+    const name = (decision || '').toString().trim();
+    if (!name) {
+        try { triggerToast('Abgebrochen – ohne Kundenname wird kein PDF erstellt.'); } catch(e){}
+        return { proceed: false };
+    }
+    sharedKundeRef.current = name;
+    // Auch ins Formular schreiben, damit der Name im PDF/Beleg auftaucht
+    try { setTextData(prev => ({ ...prev, Kundenname: (prev && prev.Kundenname) ? prev.Kundenname : name })); } catch(e) {}
+    return { proceed: true, name };
+};
+
+// Zentrale Gate-Funktion vor JEDER PDF-Erzeugung:
+//  - Unterschrift vorhanden (= Abschluss) → Rufnummer abfragen (wie bisher)
+//  - keine Unterschrift  (= Angebot)      → Kundenname abfragen (NEU)
+// Rückgabe: { proceed:boolean, park?:boolean }
+const ensureIdentityBeforePdf = async () => {
+    if (customerSignature) {
+        return await ensureRufnummerBeforePdf();
+    }
+    return await ensureKundennameBeforePdf();
+};
+
+// Einheitlicher PDF-Dateiname: Abschluss → Rufnummer, Angebot → Kundenname. Immer mit Datum.
+const buildPdfFileName = () => {
+    const _datum = new Date().toISOString().slice(0,10);
+    if (customerSignature) {
+        let ruf = '';
+        try { ruf = sharedMsisdnRef.current || (textData?.Rufnummer || '').replace(/[^0-9+]/g, '').trim(); } catch(e) {}
+        return ruf ? `Abschluss_${ruf}_${_datum}.pdf` : `Abschluss_${_datum}.pdf`;
+    }
+    let kunde = '';
+    try { kunde = cleanKundeName(sharedKundeRef.current || textData?.Kundenname || ''); } catch(e) {}
+    return kunde ? `Angebot_${kunde}_${_datum}.pdf` : `Angebot_${_datum}.pdf`;
 };
 
 const handleFinishOfferClick = () => {
@@ -11474,34 +11619,11 @@ const handleFinishOfferClick = () => {
                             const pdfFileName = __pdfName;
                             const pdfFile = new File([blob], pdfFileName, { type: 'application/pdf' });
                             window.__lastPdfBlob = blob; window.__lastPdfFile = pdfFile;
-                            // Web Share API → natives System-Teilen. iOS-Gestenregel: schlägt das
-                            // Direkt-Teilen nach langer Erzeugung fehl, kommt der "Jetzt teilen"-Dialog.
-                            if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-                                try {
-                                    trackOutputAction('digital'); await navigator.share({ title: `Ihr persönliches Angebot`, text: `Vielen Dank für Ihren Besuch! Anbei Ihr persönliches Angebot. Bei Fragen sind wir jederzeit für Sie da. 😊${LINK_EMPLOYEE ? '\n\nMit freundlichen Grüßen\n' + LINK_EMPLOYEE : ''}`, files: [pdfFile] });
-                                    triggerToast('✅ PDF geteilt.');
-                                    setTimeout(() => setShowReferralModal(true), 400);
-                                    return;
-                                } catch(shareErr) {
-                                    if (shareErr && shareErr.name === 'AbortError') {
-                                        setTimeout(() => setShowReferralModal(true), 400);
-                                        return;
-                                    }
-                                    setPdfShareReady(pdfFile);
-                                    return;
-                                }
-                            }
-                            // Kein Web Share (Desktop Firefox etc.) → neuer Tab / Download mit MSISDN-Namen
-                            const url = URL.createObjectURL(blob);
-                            const pdfTab = window.open(url, '_blank');
-                            if (!pdfTab) {
-                                const a = document.createElement('a');
-                                a.href = url; a.download = pdfFileName;
-                                document.body.appendChild(a); a.click(); document.body.removeChild(a);
-                            }
-                            setTimeout(() => URL.revokeObjectURL(url), 120000);
-                            triggerToast('✅ PDF geöffnet – drucken oder speichern.');
-                            setTimeout(() => setShowReferralModal(true), 400);
+                            // v57b: IMMER "Jetzt teilen"-Dialog. Direkt-Teilen scheitert auf
+                            // iPad/Android nach langer Erzeugung (Geste abgelaufen). Der Tap im
+                            // Dialog liefert die frische Geste → natives Menü öffnet garantiert.
+                            trackOutputAction('digital');
+                            setPdfShareReady(pdfFile);
                         } catch(e) {
                             triggerToast('PDF-Fehler: ' + (e && e.message ? e.message : 'Unbekannt'));
                         }
@@ -11523,6 +11645,7 @@ const handleFinishOfferClick = () => {
                 setShowFinishTypeModal(false);
                 archiveSentRef.current = false; // neuer Vorgang → Archiv darf wieder feuern
                 sharedMsisdnRef.current = ''; // Rufnummer zurücksetzen
+                sharedKundeRef.current = '';  // v57: Kundenname zurücksetzen (neuer Vorgang)
 
                 // v48.1: Nach Fertigstellen (egal ob Abschluss oder Angebot) das ggf. geladene
                 // Angebot aus dem lokalen Speicher entfernen – es ist fertig bearbeitet (+ als PDF
@@ -11610,7 +11733,7 @@ const handleFinishOfferClick = () => {
                                         await parkArchiveEntry({
                                             id: 'park_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
                                             ts: Date.now(), type: 'abschluss', agent: _agent, datum: _datum,
-                                            kunde: (textData?.Kundenname || '').toString().trim(),
+                                            kunde: (sharedKundeRef.current || textData?.Kundenname || '').toString().trim(), // v57: getippter Name bevorzugt
                                             dateiname: `Abschluss_${_datum}.pdf`, pdfBlob: blob
                                         });
                                         archiveSentRef.current = true;
@@ -15256,6 +15379,71 @@ const backgroundAutoUpload = async ({ type, triggerToast, ensurePrintHeaders, ge
 // --- ROBUST SHARE & SAVE (Android/iPad): WebShare wenn möglich, sonst Download-Fallback ---
 // Hintergrund: Browser erlauben navigator.share(files) nur bei gültiger "User Activation".
 // Wenn das Rendern zu lange dauert oder Files nicht unterstützt werden, wird automatisch gespeichert.
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v57 TABLET-FINALISIEREN-FIX (iPad/Android)
+// ───────────────────────────────────────────────────────────────────────────
+// PROBLEM: Auf iOS Safari & Android Chrome brauchen navigator.share(files) UND
+// programmatische <a download>-Klicks eine noch GÜLTIGE "User Activation"
+// (frischer Fingertipp). Das PDF-Rendern dauert aber 30–90 Sek. Nach dem langen
+// `await createPrintLookPdfBlob(...)` ist die Aktivierung längst verbraucht →
+// iOS wirft NotAllowedError, der Download-Fallback wird EBENFALLS blockiert →
+// es passiert GAR NICHTS (weder Vorschau noch „ins Archiv senden"). Windows
+// erzwingt diese Regel nicht, darum geht es dort.
+//
+// LÖSUNG: Beim Tippen SOFORT (synchron, vor jedem await) einen leeren Tab
+// öffnen — das „speichert" die Nutzer-Geste. Nach dem Rendern wird der fertige
+// Blob in genau diesen Tab geladen. Von dort kann der Nutzer teilen/speichern.
+// ═══════════════════════════════════════════════════════════════════════════
+const __isMobileTablet = () => {
+    try {
+        const ua = navigator.userAgent || '';
+        const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        const isAndroid = /Android/.test(ua);
+        return isIOS || isAndroid;
+    } catch(e) { return false; }
+};
+
+// Öffnet SOFORT (synchron) einen Platzhalter-Tab und behält so die User-Aktivierung.
+// Nur auf Tablets/Handys nötig; auf Desktop null zurückgeben (dort ist alles ok).
+const openPdfPlaceholderTab = () => {
+    if (!__isMobileTablet()) return null;
+    try {
+        const win = window.open('', '_blank');
+        if (win) { try { injectPdfLoadingPage(win); } catch(e){} }
+        return win || null;
+    } catch(e) { return null; }
+};
+
+// Lädt den fertigen Blob in den vorab geöffneten Tab (oder öffnet neu / speichert als Fallback).
+const presentPdfInTab = (win, blob, filename) => {
+    let url = null;
+    try { url = URL.createObjectURL(blob); } catch(e) { url = null; }
+    const saveFallback = () => {
+        try {
+            const u = url || URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = u; a.download = filename;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => { try { URL.revokeObjectURL(u); } catch(e){} }, 8000);
+        } catch(e) {}
+    };
+    if (!url) { saveFallback(); return; }
+    try {
+        if (win && !win.closed) {
+            win.location.href = url;                // fertiges PDF in den Platzhalter-Tab laden
+            setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 120000);
+            return;
+        }
+    } catch(e) {}
+    // Tab wurde blockiert/geschlossen → normal öffnen, sonst speichern
+    try {
+        const t = window.open(url, '_blank');
+        if (!t) { saveFallback(); }
+        else { setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 120000); }
+    } catch(e) { saveFallback(); }
+};
+
 const handlePDFShare = async () => {
     // ── Angebotsgültigkeit prüfen (wie bei requestPrint) ──
     const _pdfHasOpen = hasOpenOfferNeedingValidity();
@@ -15266,12 +15454,20 @@ const handlePDFShare = async () => {
         return;
     }
 
+    // ── v57: PFLICHT-ABFRAGE VOR DER PDF-ERZEUGUNG ──
+    // Abschluss (Unterschrift) → Rufnummer  |  Angebot (ohne) → Kundenname.
+    // Muss VOR dem Tab-Öffnen laufen; der Klick im Popup liefert die frische Geste.
+    const __idRes = await ensureIdentityBeforePdf();
+    if (!__idRes || !__idRes.proceed) return;
+
     // FINAL SAFE (ScopeFix + Silent Share):
     // - No blocking alert() (keeps "Offen/Abgeschlossen" Badge/Rand sichtbar)
-    // - Try Web Share when possible, otherwise silent download fallback
     // - Never white-screen (all errors caught)
+    // v57b: KEIN Platzhalter-Tab mehr. Nach dem Rendern kommt der Teilen-Dialog
+    // ("Jetzt teilen") – dessen Tap ist eine frische Geste → natives Teilen-Menü.
 
-    const filename = `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
+    // v57: Dateiname trägt jetzt Kundenname (Angebot) bzw. Rufnummer (Abschluss) + Datum
+    const filename = buildPdfFileName();
 
     const saveBlobToDownloads = (blob) => {
         const url = URL.createObjectURL(blob);
@@ -15335,38 +15531,18 @@ const handlePDFShare = async () => {
         // Generate once (no double render)
         blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders, { addPageNumbers: true });
         clearTimeout(_ovTimeout);
-
-        
-        const file = new File([blob], filename, { type: 'application/pdf' });
         hideOverlay();
 
-        // ── DIREKT TEILEN: kein Modal-Zwischenschritt ──────────────────────────
-        // Web Share API mit File: Android Chrome ✅  iPad Safari ✅  Windows Chrome 93+ ✅
-        const canShareFiles = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [file] }));
-
-        if (canShareFiles) {
-            try {
-                await navigator.share({
-                    files: [file],
-                    title: filename,
-                    text: 'Ihr persönliches Angebot vom o2 Shop Aalen'
-                });
-                // Nutzer hat geteilt – fertig, nichts weiter nötig.
-            } catch (shareErr) {
-                // Nutzer hat den Share-Dialog abgebrochen → kein Fehler
-                if (shareErr && shareErr.name === 'AbortError') return;
-                // Anderer Fehler (z.B. App-Bug) → stiller Download-Fallback
-                saveBlobToDownloads(blob);
-                try { triggerToast('Teilen fehlgeschlagen – PDF gespeichert.'); } catch(e){}
-            }
-        } else {
-            // Kein Web Share API → Tab öffnen (drucken/speichern möglich)
-            const url = URL.createObjectURL(blob);
-            const pdfTab = window.open(url, '_blank');
-            if (!pdfTab) { saveBlobToDownloads(blob); }
-            setTimeout(() => URL.revokeObjectURL(url), 120000);
-            try { triggerToast('✅ PDF geöffnet – drucken oder teilen.'); } catch(e){}
-        }
+        // ══ v57b: TEILEN-DIALOG statt Direkt-Teilen ══════════════════════════
+        // Der Tap auf "Jetzt teilen" ist eine FRISCHE Geste → das native Menü
+        // (WhatsApp / Mail / Outlook) öffnet auf iPad, Android UND Windows sicher.
+        await openShareSheet({
+            blob,
+            filename,
+            title: 'PDF ist fertig!',
+            subtitle: 'Jetzt mit dem Kunden teilen oder öffnen.',
+            shareText: 'Ihr persönliches Angebot vom o2 Shop Aalen'
+        });
 } catch (err) {
         hideOverlay();
         try { console.warn('PDF Share failed:', err); } catch(e){}
@@ -15384,29 +15560,36 @@ const handlePDFShare = async () => {
 
 
 // ── Wiederverwendbarer Versand: Teilen-Dialog (PDF dran) mit Mail-Fallback ──
-const dispatchArchiveMail = async (blob, dateiname, betreff) => {
-    const file = new File([blob], dateiname, { type: 'application/pdf' });
+const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
     const saveBlob = (b) => {
         const url = URL.createObjectURL(b);
         const a = document.createElement('a'); a.href=url; a.download=dateiname;
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(()=>URL.revokeObjectURL(url), 8000);
     };
-    const canShareFiles = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [file] }));
-    if (canShareFiles) {
-        try {
-            await navigator.share({
-                files: [file],
-                title: betreff,
-                text: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${betreff}`
-            });
-            try { triggerToast('„Mail/Outlook" wählen → Adresse ' + ARCHIV_EMAIL + ' eintragen → senden. PDF ist bereits angehängt.'); } catch(e){}
+
+    // ══ v57b: TEILEN-DIALOG statt Direkt-Teilen ══════════════════════════════
+    // navigator.share() braucht eine FRISCHE Nutzer-Geste. Nach dem langen
+    // PDF-Rendern ist die vom ersten Tipp abgelaufen → auf iPad/Android passiert
+    // sonst gar nichts. Der Tap auf "Jetzt teilen" liefert die neue Geste →
+    // das native Menü mit Mail/Outlook öffnet zuverlässig, PDF schon angehängt.
+    try {
+        const ok = await openShareSheet({
+            blob,
+            filename: dateiname,
+            title: '📨 Angebot ins Archiv senden',
+            subtitle: 'Jetzt teilen → „Mail" oder „Outlook" wählen → an ' + ARCHIV_EMAIL + ' senden.\nBetreff bitte NICHT ändern.',
+            shareText: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${betreff}`
+        });
+        if (ok) {
+            try { triggerToast('„Mail/Outlook" wählen → Adresse ' + ARCHIV_EMAIL + ' → senden. PDF ist bereits angehängt.'); } catch(e){}
             return;
-        } catch (shareErr) {
-            if (shareErr && shareErr.name === 'AbortError') { try { saveBlob(blob); } catch(e){} return; }
         }
-    }
-    saveBlob(blob);
+        // Nutzer hat den Teilen-Dialog abgebrochen → PDF sichern + Mail-App als Notnagel
+    } catch(e) {}
+
+    // Fallback: PDF speichern und Mail-Programm mit fertiger Adresse/Betreff öffnen
+    try { saveBlob(blob); } catch(e) {}
     const _body = encodeURIComponent(
         'Bitte das soeben gespeicherte PDF anhängen und senden.\n\n' +
         '(Betreff bitte NICHT ändern – wird automatisch einsortiert.)\n\n' +
@@ -15429,6 +15612,7 @@ const sendToArchive = async (archiveType, opts = {}) => {
     // archiveType: 'abschluss' | 'angebot' | undefined (auto)
     // opts.askForNumber: false = beim reinen Angebot/Drucken NICHT nach Nummer fragen
     const askForNumber = opts.askForNumber !== false;
+
     // Auto-Logik: Liegt eine Kundenunterschrift vor → Abschluss, sonst → Angebot.
     let _type;
     if (archiveType === 'abschluss' || archiveType === 'angebot') {
@@ -15437,6 +15621,21 @@ const sendToArchive = async (archiveType, opts = {}) => {
         _type = customerSignature ? 'abschluss' : 'angebot';
     }
 
+    // ── v57: Beim ANGEBOT den Kundennamen VOR dem Rendern sichern ──
+    // (Erst Name, dann PDF – sonst ist das Angebot im Archiv später nicht auffindbar.)
+    // Wichtig: VOR dem Tab-Öffnen fragen, sonst geht die Nutzer-Geste verloren.
+    if (_type === 'angebot') {
+        let _hatName = '';
+        try { _hatName = (sharedKundeRef.current || textData?.Kundenname || '').toString().trim(); } catch(e) {}
+        if (!_hatName) {
+            const _res = await ensureKundennameBeforePdf();
+            if (!_res || !_res.proceed) return; // abgebrochen → nichts archivieren
+        }
+    }
+
+    // v57b: Kein Platzhalter-Tab mehr nötig – dispatchArchiveMail() zeigt nach dem
+    // Rendern den Teilen-Dialog ("Jetzt teilen"), dessen Tap die frische Geste liefert.
+
     // Rufnummer + Agent für Betreff/Dateiname
     // Rufnummer: zuerst die im Druck-Flow eingegebene (sharedMsisdnRef), dann Formular, dann leer
     let _ruf = '';
@@ -15444,6 +15643,10 @@ const sendToArchive = async (archiveType, opts = {}) => {
     let _agent = '';
     try { _agent = getAgentDisplayNameForUpload(); if (_agent === '–') _agent = ''; } catch(e) {}
     const _datum = new Date().toISOString().slice(0,10);
+
+    // v57: Kundenname (beim ANGEBOT das Suchkriterium – wurde vor der PDF-Erzeugung abgefragt)
+    let _kunde = '';
+    try { _kunde = cleanKundeName(sharedKundeRef.current || textData?.Kundenname || ''); } catch(e) {}
 
     const showOverlay2 = (msg) => {
         let ov = document.getElementById('pdf-share-overlay');
@@ -15489,7 +15692,7 @@ const sendToArchive = async (archiveType, opts = {}) => {
                         type: _type,
                         agent: _agent,
                         datum: _datum,
-                        kunde: (textData?.Kundenname || '').toString().trim(),
+                        kunde: (sharedKundeRef.current || textData?.Kundenname || '').toString().trim(), // v57: getippter Name bevorzugt
                         dateiname: `${_type === 'abschluss' ? 'Abschluss' : 'Angebot'}_${_datum}.pdf`,
                         pdfBlob: blob
                     });
@@ -15500,17 +15703,30 @@ const sendToArchive = async (archiveType, opts = {}) => {
             }
         }
 
+        // v57: Kundenname ggf. jetzt erst verfügbar (Popup lief oben) → neu einlesen
+        try { _kunde = cleanKundeName(sharedKundeRef.current || textData?.Kundenname || _kunde || ''); } catch(e) {}
+
         // Betreff nach festem Schema – DARAN sortiert Power Automate.
-        // Format:  PENCIL|abschluss|2026-06-27|491761234567|Diego
-        const _betreff = `PENCIL|${_type}|${_datum}|${_ruf || 'keine-nr'}|${_agent || 'unbekannt'}`;
-        const _dateiname = `${_type === 'abschluss' ? 'Abschluss' : 'Angebot'}_${_datum}_${_ruf || 'keineNr'}.pdf`;
+        // Format bisher:  PENCIL|abschluss|2026-06-27|491761234567|Diego
+        // v57 NEU: hinten wird der Kundenname als 6. Feld angehängt (Reihenfolge der
+        // ersten 5 Felder bleibt gleich → bestehende Flows laufen unverändert weiter).
+        // Format neu:     PENCIL|angebot|2026-06-27|keine-nr|Diego|Mustermann
+        const _betreff = `PENCIL|${_type}|${_datum}|${_ruf || 'keine-nr'}|${_agent || 'unbekannt'}|${_kunde || 'kein-name'}`;
+
+        // Dateiname: Abschluss → Rufnummer, Angebot → Kundenname. Immer mit Datum.
+        const _dateiname = (_type === 'abschluss')
+            ? `Abschluss_${_datum}_${_ruf || 'keineNr'}.pdf`
+            : `Angebot_${_datum}_${_kunde || 'keinName'}.pdf`;
 
         await dispatchArchiveMail(blob, _dateiname, _betreff);
 
     } catch (err) {
         hideOverlay2();
         try { console.warn('Archiv-Versand fehlgeschlagen:', err); } catch(e){}
-        try { if (blob) { const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${_type||'Archiv'}_${_datum}.pdf`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),8000); } } catch(e2){}
+        // Fehler → PDF wenigstens lokal sichern
+        try {
+            if (blob) { const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${_type||'Archiv'}_${_datum}.pdf`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),8000); }
+        } catch(e2){}
         try { triggerToast('Archiv-PDF gespeichert – bitte manuell an ' + ARCHIV_EMAIL + ' senden.'); } catch(e){}
     } finally {
         hideOverlay2();
@@ -15808,13 +16024,14 @@ const resumeParkedArchive = async (entry, rufValue) => {
                 if (!runOnlyWithOfferValidity(() => { handleRecommendedPdfPrint(); })) return;
 
                 try { setShowFinishTypeModal(false); } catch(e) {}
-                // Reines Drucken / Angebot mitgeben (OHNE Unterschrift):
-                // KEINE Rufnummer-Abfrage. Falls im Formular schon eine steht, wird sie genutzt.
-                let __msisdn2 = '';
-                try { __msisdn2 = sharedMsisdnRef.current || (textData?.Rufnummer || '').replace(/[^0-9+]/g, '').trim(); } catch(e) {}
-                const __pdfName2 = __msisdn2
-                    ? `Angebot_${__msisdn2}_${new Date().toISOString().slice(0,10)}.pdf`
-                    : `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
+
+                // ── v57: PFLICHT-ABFRAGE VOR DER PDF-ERZEUGUNG ──
+                // Abschluss (Unterschrift) → Rufnummer  |  Angebot (ohne) → Kundenname
+                // Ohne Eingabe wird KEIN PDF erzeugt (gleiche Logik wie bei der Rufnummer).
+                const __idRes = await ensureIdentityBeforePdf();
+                if (!__idRes || !__idRes.proceed) return;
+
+                const __pdfName2 = buildPdfFileName();
                 triggerToast('PDF wird erstellt… einen Moment.');
                 // ☁️ Angebot ohne Unterschrift → automatisch in Cloud sichern (für "Kunde kommt zurück")
                 if (!customerSignature) { try { cloudAutoSaveCurrentOffer(); } catch(e){} }
@@ -15833,27 +16050,10 @@ const resumeParkedArchive = async (entry, rufValue) => {
                     // ── Statistik sofort loggen (zählt unabhängig vom Teilen-Weg als "Angebot") ──
                     logQuoteToStatistics();
 
-                    // Direkt-Teilen versuchen. ACHTUNG iOS: navigator.share braucht eine frische
-                    // Nutzer-Geste – nach langer PDF-Erzeugung kann die abgelaufen sein. Dann
-                    // zeigen wir den "Jetzt teilen"-Dialog (Button-Tap = neue Geste → klappt sicher).
-                    if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-                        try {
-                            trackOutputAction('digital'); await navigator.share({ title: `Ihr persönliches Angebot`, text: `Vielen Dank für Ihren Besuch! Anbei Ihr persönliches Angebot. Bei Fragen sind wir jederzeit für Sie da. 😊${LINK_EMPLOYEE ? '\n\nMit freundlichen Grüßen\n' + LINK_EMPLOYEE : ''}`, files: [pdfFile] });
-                            triggerToast('✅ PDF geteilt.');
-                            setTimeout(() => setShowReferralModal(true), 400);
-                            return;
-                        } catch(shareErr) {
-                            if (shareErr && shareErr.name === 'AbortError') {
-                                // Nutzer hat Teilen-Dialog bewusst geschlossen → trotzdem Abschluss-Dialog
-                                setTimeout(() => setShowReferralModal(true), 400);
-                                return;
-                            }
-                            // Gestenregel abgelaufen → Teilen-Button mit frischer Geste anbieten
-                            setPdfShareReady(pdfFile);
-                            return;
-                        }
-                    }
-                    // Share-API nicht verfügbar → Teilen/Öffnen-Dialog anbieten
+                    // v57b: IMMER den "Jetzt teilen"-Dialog zeigen. Direkt-Teilen scheitert
+                    // auf iPad/Android nach langer PDF-Erzeugung (Geste abgelaufen). Der Tap
+                    // im Dialog ist eine frische Geste → natives Menü öffnet garantiert.
+                    trackOutputAction('digital');
                     setPdfShareReady(pdfFile);
                 } catch(e) {
                     triggerToast('PDF-Fehler: ' + (e && e.message ? e.message : 'Unbekannt'));
@@ -16269,6 +16469,71 @@ const resumeParkedArchive = async (entry, rufValue) => {
                             onSubmit={(val) => { setRufModalOpen(false); try { rufModalResolveRef.current && rufModalResolveRef.current({ action: 'ok', value: val }); } catch(e){} }}
                             onPark={() => { setRufModalOpen(false); try { rufModalResolveRef.current && rufModalResolveRef.current({ action: 'park' }); } catch(e){} }}
                         />
+                    ), document.body)}
+
+                    {/* ── v57: Kundenname-Popup (nur beim ANGEBOT ohne Unterschrift) ── */}
+                    {kundeModalOpen && ReactDOM.createPortal((
+                        <KundennameModal
+                            defaultValue={(() => { try { return (sharedKundeRef.current || textData?.Kundenname || '').toString().trim(); } catch(e) { return ''; } })()}
+                            onSubmit={(val) => { setKundeModalOpen(false); try { kundeModalResolveRef.current && kundeModalResolveRef.current(val); } catch(e){} }}
+                            onCancel={() => { setKundeModalOpen(false); try { kundeModalResolveRef.current && kundeModalResolveRef.current(''); } catch(e){} }}
+                        />
+                    ), document.body)}
+
+                    {/* ══ v57b: UNIVERSELLER TEILEN-DIALOG ══════════════════════════
+                        Tipp auf "Jetzt teilen" = FRISCHE Geste → navigator.share()
+                        öffnet danach zuverlässig das native Menü (WhatsApp/Mail/Outlook),
+                        auch auf iPad & Android nach langem PDF-Rendern.            */}
+                    {shareSheet && ReactDOM.createPortal((
+                        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.6)',backdropFilter:'blur(4px)',zIndex:100001,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+                            <div style={{background:'#fff',borderRadius:'20px',padding:'26px 24px',width:'min(92vw,420px)',textAlign:'center',boxShadow:'0 25px 60px rgba(0,0,0,0.35)'}}>
+                                <div style={{fontSize:'40px',marginBottom:'8px'}}>📄</div>
+                                <div style={{fontSize:'19px',fontWeight:900,color:'#0f172a',marginBottom:'6px'}}>{shareSheet.title}</div>
+                                <div style={{fontSize:'13px',color:'#64748b',marginBottom:'18px',lineHeight:1.45}}>{shareSheet.subtitle}</div>
+
+                                {/* HAUPT-BUTTON: synchron im Tap → iOS/Android zeigen das Teilen-Menü sicher */}
+                                <button onClick={() => {
+                                    const s = shareSheet;
+                                    setShareSheet(null);
+                                    const done = (okFlag) => { try { s.resolve && s.resolve(okFlag); } catch(e){} };
+                                    const openTab = () => {
+                                        try {
+                                            const url = URL.createObjectURL(s.file);
+                                            const t = window.open(url, '_blank');
+                                            if (!t) { const a = document.createElement('a'); a.href = url; a.download = s.file.name; document.body.appendChild(a); a.click(); a.remove(); }
+                                            setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 120000);
+                                        } catch(e) {}
+                                    };
+                                    if (navigator.share && navigator.canShare && navigator.canShare({ files: [s.file] })) {
+                                        navigator.share({ title: s.file.name, text: s.shareText, files: [s.file] })
+                                            .then(() => { try { triggerToast('✅ PDF geteilt.'); } catch(e){} done(true); })
+                                            .catch((err) => {
+                                                if (err && err.name === 'AbortError') { done(false); return; } // Nutzer hat abgebrochen
+                                                openTab(); done(true);
+                                            });
+                                    } else {
+                                        openTab(); done(true);
+                                    }
+                                }} style={{width:'100%',padding:'15px',borderRadius:'14px',border:'none',background:'linear-gradient(135deg,#2563eb,#1d4ed8)',color:'#fff',fontWeight:900,fontSize:'16px',cursor:'pointer',marginBottom:'10px',boxShadow:'0 6px 16px rgba(37,99,235,0.35)'}}>
+                                    📤 Jetzt teilen
+                                </button>
+
+                                {/* Alternativ: nur öffnen (drucken / manuell speichern) */}
+                                <button onClick={() => {
+                                    const s = shareSheet;
+                                    setShareSheet(null);
+                                    try {
+                                        const url = URL.createObjectURL(s.file);
+                                        const t = window.open(url, '_blank');
+                                        if (!t) { const a = document.createElement('a'); a.href = url; a.download = s.file.name; document.body.appendChild(a); a.click(); a.remove(); }
+                                        setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 120000);
+                                    } catch(e) {}
+                                    try { s.resolve && s.resolve(true); } catch(e){}
+                                }} style={{width:'100%',padding:'12px',borderRadius:'14px',border:'1.5px solid #e2e8f0',background:'#f8fafc',color:'#475569',fontWeight:700,fontSize:'14px',cursor:'pointer'}}>
+                                    In neuem Tab öffnen
+                                </button>
+                            </div>
+                        </div>
                     ), document.body)}
 
                     {/* ── "Angebot abschließen?" nach dem Laden im Finalisieren-Modus ── */}
