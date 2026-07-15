@@ -389,6 +389,14 @@
         }
 
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* v58: News-Ticker Lauftext (rechts → links) */
+        @keyframes newsScroll {
+            from { transform: translate(0, -50%); }
+            to   { transform: translate(-50%, -50%); }
+        }
+        /* Ticker im Ausdruck ausblenden */
+        @media print { .news-ticker-bar { display: none !important; } }
         .animate-in { animation: fadeIn 0.3s ease-out forwards; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         
@@ -4267,6 +4275,138 @@ body.pdf-share-mode .offer-canvas-container:has(.offer-html-overlay-wrap) .offer
         };
 
         // ═══════════════════════════════════════════════════════════════
+        // 🏷️ MARKE (v58) – o2 / Telekom / Vodafone
+        // Erkennung in dieser Reihenfolge:
+        //   1) Link-Parameter  ?brand=o2       (hat immer Vorrang)
+        //   2) zuletzt gemerkte Marke (localStorage)
+        //   3) Standard: o2
+        // Der News-Ticker lädt die Meldungen der jeweiligen Marke:
+        //   Firestore: news/o2 · news/telekom · news/vodafone
+        // ═══════════════════════════════════════════════════════════════
+        const BRANDS = {
+            o2:       { id:'o2',       label:'o2',       color:'#0019a5' },
+            telekom:  { id:'telekom',  label:'Telekom',  color:'#e20074' },
+            vodafone: { id:'vodafone', label:'Vodafone', color:'#e60000' }
+        };
+
+        const CURRENT_BRAND = (() => {
+            const norm = (v) => {
+                const s = (v || '').toString().trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (s === 'o2' || s === 'o₂') return 'o2';
+                if (s.startsWith('telekom') || s === 'tk' || s === 't') return 'telekom';
+                if (s.startsWith('vodafone') || s === 'vf') return 'vodafone';
+                return '';
+            };
+            try {
+                // 1) Link-Parameter
+                const params = new URLSearchParams(window.location.search || '');
+                const fromLink = norm(params.get('brand') || params.get('marke') || '');
+                if (fromLink) {
+                    try { localStorage.setItem('ps_brand', fromLink); } catch(_) {}
+                    return fromLink;
+                }
+                // 2) gemerkte Marke
+                const saved = norm(localStorage.getItem('ps_brand') || '');
+                if (saved) return saved;
+            } catch(e) {}
+            // 3) Standard
+            return 'o2';
+        })();
+        try { window.__PS_BRAND = CURRENT_BRAND; } catch(e) {}
+
+        // ═══════════════════════════════════════════════════════════════
+        // 📢 NEWS-TICKER (v58) – Firebase Firestore, PRO MARKE
+        // Diego pflegt im Admin je Marke bis zu 5 Meldungen. Diese laufen oben
+        // in einer orangen Leiste durch. Der Agent kann sie wegklicken – beim
+        // nächsten Refresh sind sie wieder da (bewusst so: wichtige Infos sollen
+        // nicht dauerhaft verschwinden). Ablage: Collection 'news', Doc = Marke.
+        // Nutzt dieselbe Firebase-Verbindung wie die Statistik (getStatsDb).
+        // ═══════════════════════════════════════════════════════════════
+        const NEWS_MAX = 5;
+
+        // News der AKTUELLEN Marke laden (einmal beim Start)
+        const loadNewsTicker = async (brand = CURRENT_BRAND) => {
+            try {
+                const db = getStatsDb();
+                if (!db) return [];
+                const snap = await db.collection('news').doc(brand || 'o2').get();
+                if (!snap.exists) return [];
+                const data = snap.data() || {};
+                const items = Array.isArray(data.items) ? data.items : [];
+                const heute = new Date().toISOString().slice(0, 10);
+                return items
+                    .filter(it => it && typeof it.text === 'string' && it.text.trim())
+                    .filter(it => !it.bis || it.bis >= heute)   // abgelaufene ausblenden
+                    .slice(0, NEWS_MAX);
+            } catch (e) {
+                console.warn('News laden fehlgeschlagen:', e);
+                return [];
+            }
+        };
+
+        // News speichern (nur Admin) – je Marke
+        const saveNewsTicker = async (items, brand = CURRENT_BRAND) => {
+            const db = getStatsDb();
+            if (!db) throw new Error('Keine Firebase-Verbindung');
+            const clean = (Array.isArray(items) ? items : [])
+                .filter(it => it && String(it.text || '').trim())
+                .slice(0, NEWS_MAX)
+                .map(it => ({
+                    text: String(it.text).trim().slice(0, 300),
+                    bis: (it.bis || '').toString().slice(0, 10)   // optionales Ablaufdatum
+                }));
+            await db.collection('news').doc(brand || 'o2').set({
+                items: clean,
+                updatedAt: new Date().toISOString()
+            });
+            return clean;
+        };
+
+        // ── Ticker-Leiste (orange, laufend, wegklickbar bis zum nächsten Refresh) ──
+        const NewsTicker = ({ items, onClose }) => {
+            if (!items || items.length === 0) return null;
+            // Alle Meldungen zu einem Lauftext verketten
+            const text = items.map(it => it.text).join('   •   ');
+            // Tempo an die Textlänge koppeln → lange Texte laufen nicht ewig
+            const dauer = Math.max(18, Math.min(90, Math.round(text.length / 4)));
+            const markeLabel = (BRANDS[CURRENT_BRAND] || BRANDS.o2).label;
+            return (
+                <div style={{
+                    position:'relative', display:'flex', alignItems:'center',
+                    background:'linear-gradient(90deg,#f97316,#fb923c)',
+                    color:'#fff', height:'26px', flexShrink:0, overflow:'hidden',
+                    boxShadow:'0 1px 4px rgba(249,115,22,0.35)', zIndex:25
+                }}>
+                    <div style={{
+                        display:'flex', alignItems:'center', gap:'5px',
+                        padding:'0 9px', height:'100%', flexShrink:0,
+                        background:'rgba(0,0,0,0.13)', fontSize:'10px', fontWeight:900,
+                        letterSpacing:'0.06em', textTransform:'uppercase'
+                    }}>
+                        <span style={{fontSize:'11px'}}>📢</span>
+                        <span>{markeLabel}</span>
+                    </div>
+                    <div style={{flex:1, overflow:'hidden', position:'relative', height:'100%'}}>
+                        <div style={{
+                            position:'absolute', whiteSpace:'nowrap', top:'50%',
+                            transform:'translateY(-50%)', fontSize:'11.5px', fontWeight:700,
+                            willChange:'transform',
+                            animation:`newsScroll ${dauer}s linear infinite`
+                        }}>
+                            {text}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{text}
+                        </div>
+                    </div>
+                    <button onClick={onClose} title="Ausblenden (bis zum nächsten Neuladen)"
+                        style={{
+                            flexShrink:0, width:'26px', height:'100%', border:'none',
+                            background:'rgba(0,0,0,0.13)', color:'#fff', cursor:'pointer',
+                            fontSize:'14px', fontWeight:900, lineHeight:1, padding:0
+                        }}>×</button>
+                </div>
+            );
+        };
+
+        // ═══════════════════════════════════════════════════════════════
         // ☁️ ANGEBOTE ZENTRAL SPEICHERN (Firebase Firestore) – v51
         // Damit "Kunde kommt in 2 Wochen zurück" funktioniert: Angebote werden
         // NICHT nur 48h lokal, sondern 30 Tage zentral in Firebase abgelegt.
@@ -7662,6 +7802,36 @@ const highResHTML = buildHighResBundleHTML(d);
                     .sort((a,b) => new Date(b.ts) - new Date(a.ts));
             }, [filtered, selectedAgent]);
 
+            // ══ v58: DSL-ANBIETER-AUSWERTUNG ══════════════════════════════════
+            // Zeigt: Wie viele Beratungen hatten DSL-Bedarf, und welchen Anbieter
+            // hatte der Kunde bisher? Vorher fielen o2-Bestandskunden komplett raus.
+            const dslStats = useMemo(() => {
+                const source = selectedAgent === '__all__' ? filtered : filtered.filter(r => resolveUserName(r.user) === selectedAgent);
+                const norm = (p) => {
+                    const s = (p || '').toString().trim();
+                    if (!s) return '';
+                    const l = s.toLowerCase();
+                    if (l === 'o2' || l === 'o₂') return 'O2';
+                    if (l.startsWith('telekom')) return 'Telekom';
+                    if (l.startsWith('vodafone')) return 'Vodafone';
+                    if (l === '1&1' || l.startsWith('1und1') || l.startsWith('1&1')) return '1&1';
+                    return s;
+                };
+                const byProvider = {};
+                let mitAnbieter = 0, mitBedarf = 0;
+                source.forEach(r => {
+                    const p = norm(r.dslProvider);
+                    if (!p) return;                 // Altdaten ohne Anbieter → nicht mitzählen
+                    mitAnbieter++;
+                    if (!byProvider[p]) byProvider[p] = { provider: p, total: 0, bedarf: 0 };
+                    byProvider[p].total++;
+                    const hatBedarf = (r.dslBedarf === 'ja');
+                    if (hatBedarf) { byProvider[p].bedarf++; mitBedarf++; }
+                });
+                const list = Object.values(byProvider).sort((a, b) => b.total - a.total);
+                return { list, mitAnbieter, mitBedarf };
+            }, [filtered, selectedAgent]);
+
             const skipReasonsByAgent = useMemo(() => {
                 const map = {};
                 skipReasonRows.forEach(r => {
@@ -8007,6 +8177,47 @@ const highResHTML = buildHighResBundleHTML(d);
                                     })}
                                 </div>
                             </div>
+                            {/* ══ v58: DSL-ANBIETER-AUSWERTUNG ══════════════════════════
+                                Zeigt getrennt: aktueller Anbieter des Kunden UND ob ein
+                                DSL-Angebot gemacht wurde. o2-Bestandskunden fallen nicht
+                                mehr aus der Statistik. */}
+                            <div style={{background:'#fff',borderRadius:'14px',border:'2px solid #bfdbfe',padding:'16px'}}>
+                                <div style={{fontSize:'11px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:'4px'}}>🌐 DSL-Anbieter der Kunden</div>
+                                <div style={{fontSize:'11px',color:'#94a3b8',marginBottom:'12px'}}>
+                                    {dslStats.mitAnbieter > 0
+                                        ? <>Bei <b style={{color:'#1e293b'}}>{dslStats.mitAnbieter}</b> Beratungen wurde der Anbieter erfasst – davon <b style={{color:'#2563eb'}}>{dslStats.mitBedarf}</b>× mit DSL-Angebot ({Math.round((dslStats.mitBedarf / dslStats.mitAnbieter) * 100)}%).</>
+                                        : <>Noch keine Daten. Wird ab sofort bei jeder Beratung erfasst.</>}
+                                </div>
+                                {dslStats.list.length > 0 ? (
+                                    <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
+                                        {dslStats.list.map(p => {
+                                            const pct = dslStats.mitAnbieter > 0 ? Math.round((p.total / dslStats.mitAnbieter) * 100) : 0;
+                                            const quote = p.total > 0 ? Math.round((p.bedarf / p.total) * 100) : 0;
+                                            const farbe = p.provider === 'Telekom' ? '#e20074'
+                                                        : p.provider === 'Vodafone' ? '#e60000'
+                                                        : p.provider === 'O2' ? '#0019a5'
+                                                        : p.provider === '1&1' ? '#004b93' : '#64748b';
+                                            return (
+                                                <div key={p.provider} style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                                                    <div style={{width:'74px',flexShrink:0,fontSize:'11px',fontWeight:800,color:farbe}}>{p.provider}</div>
+                                                    <div style={{flex:1,height:'20px',borderRadius:'6px',background:'#f1f5f9',overflow:'hidden',position:'relative'}}>
+                                                        <div style={{height:'100%',width:`${pct}%`,background:farbe,opacity:0.85,borderRadius:'6px',transition:'width .3s'}}/>
+                                                        <span style={{position:'absolute',left:'7px',top:'50%',transform:'translateY(-50%)',fontSize:'10px',fontWeight:800,color: pct > 22 ? '#fff' : '#475569'}}>{p.total}× ({pct}%)</span>
+                                                    </div>
+                                                    <div style={{width:'112px',flexShrink:0,textAlign:'right',fontSize:'10px',fontWeight:700,color: quote >= 50 ? '#16a34a' : '#94a3b8'}}>
+                                                        {p.bedarf}× DSL-Angebot ({quote}%)
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div style={{padding:'12px',borderRadius:'10px',background:'#f8fafc',border:'1px dashed #cbd5e1',fontSize:'11px',color:'#94a3b8',textAlign:'center'}}>
+                                        Sobald neue Beratungen abgeschlossen werden, erscheint hier die Verteilung.
+                                    </div>
+                                )}
+                            </div>
+
                             {/* Qualitätskontrolle */}
                             <div style={{background:'#fff',borderRadius:'14px',border:`2px solid ${qRate>=75?'#a7f3d0':qRate>=50?'#fde68a':'#fecaca'}`,padding:'16px'}}>
                                 <div style={{fontSize:'11px',fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:'12px'}}>{qRate>=75?'✅':'❌'} Qualitätskontrolle · mind. 75% (8/10 Felder)</div>
@@ -10164,6 +10375,22 @@ const handleOpenStats = () => { setShowPinLock(true); };
                 rufModalResolveRef.current = resolve;
                 setRufModalOpen(true);
             });
+
+            // ── v58: News-Ticker (orange Leiste oben) ──
+            // Wegklicken gilt nur für diese Sitzung – nach dem nächsten Refresh
+            // ist die Meldung wieder da (so gewollt, damit nichts untergeht).
+            const [newsItems, setNewsItems] = useState([]);
+            const [newsHidden, setNewsHidden] = useState(false);
+            useEffect(() => {
+                let abbruch = false;
+                (async () => {
+                    try {
+                        const items = await loadNewsTicker();
+                        if (!abbruch) setNewsItems(items || []);
+                    } catch(e) { /* still ignorieren – Ticker ist nicht kritisch */ }
+                })();
+                return () => { abbruch = true; };
+            }, []);
 
             // ── v57: Kundenname-Abfrage (nur beim ANGEBOT, ohne Unterschrift) ──
             const sharedKundeRef = useRef(''); // einmal eingegebener Kundenname für PDF + Archiv
@@ -16002,6 +16229,22 @@ const resumeParkedArchive = async (entry, rufValue) => {
             const logQuoteToStatistics = () => {
                 try {
                     const computedResult = computeResultFromActivity(drawnStrokes, textData, false);
+                    const _cs = buildCanvasStatsFromDrawnStrokes(drawnStrokes, textData, { skipReason, offerData });
+                    // ── v58 DSL-STATISTIK ────────────────────────────────────────────
+                    // Vorher gingen Vorgänge mit o2-Bestandsanbieter in der DSL-Auswertung
+                    // verloren. Jetzt werden ZWEI Dinge getrennt erfasst:
+                    //  1) dslProvider → Wer ist der AKTUELLE Anbieter? (Telekom/1&1/Vodafone/O2/…)
+                    //  2) dslBedarf   → Wurde ein DSL-Angebot gemacht? (ja/nein)
+                    // → Auswertung: "100× Bedarf erhoben, davon 50× Bestandsanbieter o2".
+                    const _dslProvider = (() => {
+                        try {
+                            if (isCustomProvider) return (customProvider || '').toString().trim() || 'Sonstiges';
+                            return (providerSelect || '').toString().trim();
+                        } catch(e) { return ''; }
+                    })();
+                    const _dslBedarf = (() => {
+                        try { return !!(_cs?.offer2?.used || _cs?.offer3?.used); } catch(e) { return false; }
+                    })();
                     appendAnalyticsRow({
                         ts: new Date().toISOString(),
                         user: (() => {
@@ -16013,8 +16256,10 @@ const resumeParkedArchive = async (entry, rufValue) => {
                         shop: 'Telekom',
                         beratungsId: beratungsId || '',
                         result: computedResult,
+                        dslProvider: _dslProvider,          // v58: aktueller DSL-Anbieter des Kunden
+                        dslBedarf: _dslBedarf ? 'ja' : 'nein', // v58: DSL-Angebot gemacht?
                         skipReasonText: (typeof skipReason === 'string' && skipReason.trim() && skipReason !== 'Übersprungen (Admin)') ? skipReason.trim().slice(0, 200) : '',
-                        canvasStats: buildCanvasStatsFromDrawnStrokes(drawnStrokes, textData, { skipReason, offerData })
+                        canvasStats: _cs
                     });
                     if (window.psCloseSession) window.psCloseSession(sessionIdRef.current);
                 } catch(e) { /* ignore */ }
@@ -16062,6 +16307,12 @@ const resumeParkedArchive = async (entry, rufValue) => {
 
             return (
                 <div className="w-full h-full bg-[#f0f6ff] font-sans text-slate-800 flex flex-col overflow-hidden text-sm">
+                    {/* v58: News-Ticker – orange Leiste ganz oben, läuft rechts → links */}
+                    {!newsHidden && newsItems.length > 0 && (
+                        <div className="news-ticker-bar print-hide-toast">
+                            <NewsTicker items={newsItems} onClose={() => setNewsHidden(true)} />
+                        </div>
+                    )}
                     <Toast message={toastMessage} />
                     <WlanModal isOpen={showWlanModal} onClose={() => setShowWlanModal(false)} triggerToast={triggerToast} onRecommendation={(rec) => setWlanRecommendation(rec)} onUebernehmen={(snap) => setWlanSnapshot(snap)} />
                     <SpeedModal isOpen={showSpeedModal} onClose={() => setShowSpeedModal(false)} triggerToast={triggerToast} onRecommendation={(rec) => setSpeedRecommendation(rec)} />
