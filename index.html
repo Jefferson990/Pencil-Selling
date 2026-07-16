@@ -390,11 +390,14 @@
 
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-        /* v58: News-Ticker Lauftext (rechts → links) */
-        @keyframes newsScroll {
-            from { transform: translate(0, -50%); }
-            to   { transform: translate(-50%, -50%); }
+        /* v58: News-Ticker Lauftext – klassisches Marquee ohne Naht.
+           Startet rechts außerhalb (100%), läuft komplett nach links raus (-100%). */
+        @keyframes newsMarquee {
+            from { transform: translate(100%, -50%); }
+            to   { transform: translate(-100%, -50%); }
         }
+        /* Ticker-Leiste darf im Flex-Layout NICHT zusammengedrückt werden (Tablet-Fix) */
+        .news-ticker-bar { flex-shrink: 0 !important; flex-grow: 0 !important; width: 100%; }
         /* Ticker im Ausdruck ausblenden */
         @media print { .news-ticker-bar { display: none !important; } }
         .animate-in { animation: fadeIn 0.3s ease-out forwards; }
@@ -4366,9 +4369,11 @@ body.pdf-share-mode .offer-canvas-container:has(.offer-html-overlay-wrap) .offer
         const NewsTicker = ({ items, onClose }) => {
             if (!items || items.length === 0) return null;
             // Alle Meldungen zu einem Lauftext verketten
-            const text = items.map(it => it.text).join('   •   ');
-            // Tempo an die Textlänge koppeln → lange Texte laufen nicht ewig
-            const dauer = Math.max(18, Math.min(90, Math.round(text.length / 4)));
+            const text = items.map(it => it.text).join('        •        ');
+            // Tempo an die Textlänge koppeln → lange Texte laufen nicht ewig.
+            // (Bezieht die halbe Bildschirmbreite mit ein, da der Text von rechts
+            //  komplett rein- und links wieder rausläuft.)
+            const dauer = Math.max(14, Math.min(75, Math.round((text.length + 40) / 4.5)));
             const markeLabel = (BRANDS[CURRENT_BRAND] || BRANDS.o2).label;
             return (
                 <div style={{
@@ -4387,13 +4392,16 @@ body.pdf-share-mode .offer-canvas-container:has(.offer-html-overlay-wrap) .offer
                         <span>{markeLabel}</span>
                     </div>
                     <div style={{flex:1, overflow:'hidden', position:'relative', height:'100%'}}>
+                        {/* Klassisches Marquee: Text startet rechts außerhalb, läuft ganz
+                            nach links raus. Keine Naht/kein Sprung – funktioniert auf
+                            jedem Tablet (iOS/Android) unabhängig von der Textlänge. */}
                         <div style={{
-                            position:'absolute', whiteSpace:'nowrap', top:'50%',
-                            transform:'translateY(-50%)', fontSize:'11.5px', fontWeight:700,
-                            willChange:'transform',
-                            animation:`newsScroll ${dauer}s linear infinite`
+                            position:'absolute', whiteSpace:'nowrap', top:'50%', left:0,
+                            fontSize:'11.5px', fontWeight:700,
+                            willChange:'transform', transform:'translate(100%, -50%)',
+                            animation:`newsMarquee ${dauer}s linear infinite`
                         }}>
-                            {text}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{text}
+                            {text}
                         </div>
                     </div>
                     <button onClick={onClose} title="Ausblenden (bis zum nächsten Neuladen)"
@@ -10383,12 +10391,24 @@ const handleOpenStats = () => { setShowPinLock(true); };
             const [newsHidden, setNewsHidden] = useState(false);
             useEffect(() => {
                 let abbruch = false;
-                (async () => {
+                // Auf langsamen Tablets ist die Firebase-Bibliothek beim Start evtl. noch
+                // nicht geladen → mehrmals versuchen, statt den Ticker still aufzugeben.
+                const versuchen = async (rest) => {
+                    if (abbruch) return;
                     try {
+                        const bereit = !!(window.firebase && window.firebase.firestore && getStatsDb());
+                        if (!bereit) {
+                            if (rest > 0) { setTimeout(() => versuchen(rest - 1), 1500); }
+                            return;
+                        }
                         const items = await loadNewsTicker();
                         if (!abbruch) setNewsItems(items || []);
-                    } catch(e) { /* still ignorieren – Ticker ist nicht kritisch */ }
-                })();
+                    } catch(e) {
+                        if (rest > 0 && !abbruch) { setTimeout(() => versuchen(rest - 1), 1500); }
+                        // sonst still ignorieren – Ticker ist nicht kritisch
+                    }
+                };
+                versuchen(5);   // bis zu 5 Versuche über ~7,5 Sek.
                 return () => { abbruch = true; };
             }, []);
 
@@ -11740,11 +11760,10 @@ const cleanKundeName = (s) => {
 // Rückgabe: { proceed:true, name:'...' } → weitermachen
 //           { proceed:false }            → Nutzer hat abgebrochen, KEIN PDF
 const ensureKundennameBeforePdf = async () => {
-    // Schon vorhanden? (vorher eingegeben oder im Formular getippt) → nicht nochmal fragen
-    let vorhanden = '';
-    try { vorhanden = (sharedKundeRef.current || (textData?.Kundenname || '')).toString().trim(); } catch(e) {}
-    if (vorhanden) { sharedKundeRef.current = vorhanden; return { proceed: true, name: vorhanden }; }
-
+    // v58b: Der Dialog kommt IMMER – auch wenn im Formular schon ein Name steht.
+    // Grund: Diego will die PDF ggf. anders benennen als das Kundenname-Feld.
+    // Das Feld ist mit dem vorhandenen Namen vorbelegt (siehe KundennameModal
+    // defaultValue), kann aber überschrieben werden.
     let decision = '';
     try { decision = await askKundenname(); } catch(e) { decision = ''; }
     const name = (decision || '').toString().trim();
@@ -15848,13 +15867,17 @@ const sendToArchive = async (archiveType, opts = {}) => {
         _type = customerSignature ? 'abschluss' : 'angebot';
     }
 
-    // ── v57: Beim ANGEBOT den Kundennamen VOR dem Rendern sichern ──
+    // ── v57/v58b: Beim ANGEBOT den Kundennamen VOR dem Rendern sichern ──
     // (Erst Name, dann PDF – sonst ist das Angebot im Archiv später nicht auffindbar.)
     // Wichtig: VOR dem Tab-Öffnen fragen, sonst geht die Nutzer-Geste verloren.
+    // Nur überspringen, wenn der Name in DIESER Sitzung schon bestätigt wurde
+    // (sharedKundeRef) – z.B. weil handlePDFShare gerade danach gefragt hat.
+    // Ein reiner Formular-Wert zählt NICHT als bestätigt → Dialog kommt trotzdem,
+    // damit die PDF bei Bedarf anders benannt werden kann.
     if (_type === 'angebot') {
-        let _hatName = '';
-        try { _hatName = (sharedKundeRef.current || textData?.Kundenname || '').toString().trim(); } catch(e) {}
-        if (!_hatName) {
+        let _bestaetigt = '';
+        try { _bestaetigt = (sharedKundeRef.current || '').toString().trim(); } catch(e) {}
+        if (!_bestaetigt) {
             const _res = await ensureKundennameBeforePdf();
             if (!_res || !_res.proceed) return; // abgebrochen → nichts archivieren
         }
