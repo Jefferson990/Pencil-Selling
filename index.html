@@ -15888,7 +15888,7 @@ const handlePDFShare = async () => {
 };
 
 
-// ── Wiederverwendbarer Versand: Teilen-Dialog (PDF dran) mit Mail-Fallback ──
+// ── Wiederverwendbarer Versand: System-Teilen direkt öffnen (PDF dran) ──
 const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
     const saveBlob = (b) => {
         const url = URL.createObjectURL(b);
@@ -15897,25 +15897,26 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
         setTimeout(()=>URL.revokeObjectURL(url), 8000);
     };
 
-    // ══ v57b: TEILEN-DIALOG statt Direkt-Teilen ══════════════════════════════
-    // navigator.share() braucht eine FRISCHE Nutzer-Geste. Nach dem langen
-    // PDF-Rendern ist die vom ersten Tipp abgelaufen → auf iPad/Android passiert
-    // sonst gar nichts. Der Tap auf "Jetzt teilen" liefert die neue Geste →
-    // das native Menü mit Mail/Outlook öffnet zuverlässig, PDF schon angehängt.
+    // Archiv-Sonderfall: Kein eigenes Zwischenfenster mehr. Das native
+    // Teilen-Menü wird sofort geöffnet; Mail/Outlook kann direkt gewählt werden.
     try {
-        const ok = await openShareSheet({
-            blob,
-            filename: dateiname,
-            title: '📨 Angebot ins Archiv senden',
-            subtitle: 'Jetzt teilen → „Mail" oder „Outlook" wählen → an ' + ARCHIV_EMAIL + ' senden.\nBetreff bitte NICHT ändern.',
-            shareText: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${betreff}`
-        });
-        if (ok) {
+        const file = new File([blob], dateiname, { type: 'application/pdf' });
+        const shareData = {
+            title: betreff,
+            text: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${betreff}`,
+            files: [file]
+        };
+        const fileShareSupported = !!navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }));
+        if (fileShareSupported) {
+            await navigator.share(shareData);
             try { triggerToast('„Mail/Outlook" wählen → Adresse ' + ARCHIV_EMAIL + ' → senden. PDF ist bereits angehängt.'); } catch(e){}
-            return;
+            return true;
         }
-        // Nutzer hat den Teilen-Dialog abgebrochen → PDF sichern + Mail-App als Notnagel
-    } catch(e) {}
+    } catch(e) {
+        // Abbrechen bedeutet wirklich abbrechen – nicht zusätzlich Mail/Download öffnen.
+        if (e && e.name === 'AbortError') return false;
+        try { console.warn('Direktes Archiv-Teilen fehlgeschlagen:', e); } catch(_) {}
+    }
 
     // Fallback: PDF speichern und Mail-Programm mit fertiger Adresse/Betreff öffnen
     try { saveBlob(blob); } catch(e) {}
@@ -15931,6 +15932,7 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
         }
     }, 400);
     try { triggerToast('PDF gespeichert → Outlook öffnet. Bitte PDF anhängen & senden.'); } catch(e){}
+    return true;
 };
 
 // ── ARCHIV: PDF speichern + vorausgefüllte Mail an Archiv-Postfach öffnen ──
@@ -15966,8 +15968,7 @@ const sendToArchive = async (archiveType, opts = {}) => {
         }
     }
 
-    // v57b: Kein Platzhalter-Tab mehr nötig – dispatchArchiveMail() zeigt nach dem
-    // Rendern den Teilen-Dialog ("Jetzt teilen"), dessen Tap die frische Geste liefert.
+    // Kein Platzhalter-Tab und kein eigener Teilen-Dialog mehr nötig.
 
     // Rufnummer + Agent für Betreff/Dateiname
     // Rufnummer: zuerst die im Druck-Flow eingegebene (sharedMsisdnRef), dann Formular, dann leer
@@ -15999,13 +16000,23 @@ const sendToArchive = async (archiveType, opts = {}) => {
     let blob = null;
     try {
         if (!window.html2pdf) { try { triggerToast('PDF-Generator nicht verfügbar.'); } catch(e){} return; }
-        document.body.classList.add('exporting');
-        showOverlay2('Archiv-PDF wird erstellt …');
-        const _t = setTimeout(()=>{ try{hideOverlay2();}catch(e){} try{document.body.classList.remove('exporting');}catch(e){} }, 30000);
-        blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders, { addPageNumbers: true });
-        clearTimeout(_t);
-        hideOverlay2();
-        try { document.body.classList.remove('exporting'); } catch(e){}
+        // Wenn die PDF im vorherigen Schritt bereits erstellt wurde, sofort teilen.
+        // Dadurch bleibt die Nutzer-Geste erhalten und das System-Menü öffnet direkt.
+        try {
+            if (window.__lastPdfBlob instanceof Blob && window.__lastPdfBlob.size > 0) {
+                blob = window.__lastPdfBlob;
+            }
+        } catch(e) {}
+
+        if (!blob) {
+            document.body.classList.add('exporting');
+            showOverlay2('Archiv-PDF wird erstellt …');
+            const _t = setTimeout(()=>{ try{hideOverlay2();}catch(e){} try{document.body.classList.remove('exporting');}catch(e){} }, 30000);
+            blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders, { addPageNumbers: true });
+            clearTimeout(_t);
+            hideOverlay2();
+            try { document.body.classList.remove('exporting'); } catch(e){}
+        }
 
         // ── Rufnummer fehlt? ──
         // Bei Abschluss (askForNumber=true): Popup Nummer eingeben ODER Parken.
@@ -16051,7 +16062,7 @@ const sendToArchive = async (archiveType, opts = {}) => {
             ? `Abschluss_${_datum}_${_ruf || 'keineNr'}.pdf`
             : `Angebot_${_datum}_${_kunde || 'keinName'}.pdf`;
 
-        await dispatchArchiveMail(blob, _dateiname, _betreff);
+        return await dispatchArchiveMail(blob, _dateiname, _betreff);
 
     } catch (err) {
         hideOverlay2();
@@ -16074,7 +16085,8 @@ const resumeParkedArchive = async (entry, rufValue) => {
     const _betreff = `PENCIL|${entry.type}|${entry.datum}|${_ruf}|${entry.agent || 'unbekannt'}`;
     const _dateiname = `${entry.type === 'abschluss' ? 'Abschluss' : 'Angebot'}_${entry.datum}_${_ruf}.pdf`;
     try {
-        await dispatchArchiveMail(entry.pdfBlob, _dateiname, _betreff);
+        const sent = await dispatchArchiveMail(entry.pdfBlob, _dateiname, _betreff);
+        if (sent === false) return false;
         await deleteParkedArchiveEntry(entry.id);
         try { triggerToast('✅ Nachgetragen und versendet.'); } catch(e){}
         try { refreshParkedCount(); } catch(e){}
@@ -16485,7 +16497,7 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                 const _ask = (_typ === 'abschluss');
                                 // Finalisiertes Cloud-Angebot: bei Abschluss aus der Cloud entfernen
                                 if (_typ === 'abschluss' && loadedOfferId) { try { cloudDeleteOffer(loadedOfferId); } catch(e){} }
-                                setTimeout(() => { try { sendToArchive(_typ, { askForNumber: _ask }); } catch(e) {} }, 250);
+                                try { sendToArchive(_typ, { askForNumber: _ask }); } catch(e) {}
                             }
                         }
                     }} onPrint={() => { try { ensurePrintHeaders(); } catch(e) {} handlePrint(); }} onShare={handlePDFShare} onPdfPrint={handleRecommendedPdfPrint} onFinish={() => {
@@ -16500,7 +16512,7 @@ const resumeParkedArchive = async (entry, rufValue) => {
                             const _typ = customerSignature ? 'abschluss' : 'angebot';
                             const _ask = (_typ === 'abschluss');
                             if (_typ === 'abschluss' && loadedOfferId) { try { cloudDeleteOffer(loadedOfferId); } catch(e){} }
-                            // Archiv anstoßen (Teilen-Dialog). NICHT awaiten – sonst hängt Android.
+                            // Archiv anstoßen: System-Teilen wird ohne Zwischenfenster geöffnet.
                             try { sendToArchive(_typ, { askForNumber: _ask }); } catch(e) {}
                             // Sicherheits-Reload nach 60s, falls der Nutzer den Teilen-Dialog
                             // gar nicht mehr schließt. Normal lädt visibilitychange früher neu.
