@@ -3573,7 +3573,7 @@ html.device-android-tablet .sit-aside-panel {
                                 id: 'ab_' + s.id,
                                 ts: new Date(s.startTs).toISOString(),
                                 user: s.agent || 'Unbekannt',
-                                shop: 'Telekom',
+                                shop: CURRENT_SHOP.name, shopId: CURRENT_SHOP.id,
                                 result: 'Abgebrochen',
                                 beratungsId: s.beratungsId || '',
                                 durationMin: Math.round(age / 60000),
@@ -4276,6 +4276,89 @@ body.pdf-share-mode .offer-canvas-container:has(.offer-html-overlay-wrap) .offer
                 return null;
             }
         };
+
+        // ═══════════════════════════════════════════════════════════════
+        // 🏪 SHOPS (v59) – Multi-Shop-Konfiguration
+        // ───────────────────────────────────────────────────────────────
+        // Alles, was sich pro Shop unterscheidet, steht hier zentral gebündelt:
+        // Name, Adresse, Telefon, Google-Bewertungslink & QR-Code.
+        // Der aktive Shop kommt aus dem Link  ?shop=aalen  (wie ?brand / ?agent),
+        // sonst aus localStorage, sonst Standard = Aalen.
+        // Jede Beratung speichert den Shop mit → in der Admin nach Shop filterbar.
+        //
+        // HINWEIS QR/Bewertung: Für Aalen liegt der exakte Google-Bewertungs-
+        // Deeplink vor. Für die anderen Shops wird eine Google-Maps-Suche nach
+        // "o2 Shop <Ort>, <Adresse>" genutzt (führt zuverlässig zum Shop &
+        // seinen Bewertungen). Sobald die exakten Deeplinks vorliegen → hier
+        // bei reviewUrl eintragen, der QR nutzt dann automatisch denselben Link.
+        // ═══════════════════════════════════════════════════════════════
+        const _gmapsSearch = (q) => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+        const _qrFor = (url) => 'https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=' + encodeURIComponent(url) + '&color=003CA6&bgcolor=ffffff&margin=1';
+
+        const SHOPS = {
+            aalen: {
+                id:'aalen', name:'o2 Shop Aalen', ort:'Aalen',
+                adresse:'Nördlicher Stadtgraben 6, 73430 Aalen', tel:'07361 - 9214446',
+                // exakter Google-Bewertungs-Deeplink (vorhanden)
+                reviewUrl:'https://www.google.com/search?q=o2+Shop+Aalen&ludocid=4324091216711915803&hl=de#lrd=0x47991b873100b771:0x3c02420d3480191b,1',
+                qrUrl:'https://www.google.com/search?hl=de-DE&gl=de&q=o2+Shop,+N%C3%B6rdlicher+Stadtgraben+6,+73430+Aalen&ludocid=4324091216711915803&lsig=AB86z5X0AwWKxq2sT1xY0AQEbR3v#lrd=0x47991b873100b771:0x3c02420d3480191b,3'
+            },
+            crailsheim:  { id:'crailsheim',  name:'o2 Shop Crailsheim',  ort:'Crailsheim',  adresse:'Karlstraße 37, 74564 Crailsheim',  tel:'07951 - 469327' },
+            'schwaebisch-hall': { id:'schwaebisch-hall', name:'o2 Shop Schwäbisch Hall', ort:'Schwäbisch Hall', adresse:'Neue Straße 30, 74523 Schwäbisch Hall', tel:'0791 - 97822060',
+                reviewUrl:'https://www.google.com/search?hl=de-DE&gl=de&q=o2+Shop,+Neue+Str.+30,+74523+Schw%C3%A4bisch+Hall&ludocid=17197322328347862166&lsig=AB86z5W8AZrwGABm6Sx9Q1becCkN#lrd=0x4798500b73b8c245:0xeea9298ad5116496,3' },
+            freilassing: { id:'freilassing', name:'o2 Shop Freilassing', ort:'Freilassing', adresse:'Hauptstraße 12, 83395 Freilassing', tel:'08654 - 7738722',
+                reviewUrl:'https://www.google.com/search?hl=de-DE&gl=de&q=o2+Shop,+Hauptstra%C3%9Fe+12,+83395+Freilassing&ludocid=142009248796939432&lsig=AB86z5X-GWRGLgZCd5oVlE4WQXcz#lrd=0x4776856b7361fc29:0x1f884a8cd5c94a8,3' },
+            neuoetting:  { id:'neuoetting',  name:'o2 Shop Neuötting',   ort:'Neuötting',   adresse:'Ludwigstraße 30, 84524 Neuötting', tel:'08671 - 929721',
+                reviewUrl:'https://www.google.com/search?hl=de-DE&gl=de&q=o2+Shop,+Ludwigstra%C3%9Fe+30,+84524+Neu%C3%B6tting&ludocid=12611745905301620164&lsig=AB86z5W0D4TpCw4y-52MZloS8wDA#lrd=0x4775c415a1e5c483:0xaf05ec14bafd85c4,3' },
+            rosenheim:   { id:'rosenheim',   name:'o2 Shop Rosenheim',   ort:'Rosenheim',   adresse:'Kufsteinerstraße 111, 83026 Rosenheim', tel:'08031 - 809823',
+                reviewUrl:'https://www.google.com/search?hl=de-DE&gl=de&q=o2+Shop,+Kufsteiner+Str.+111,+83026+Rosenheim&ludocid=11301706028164912128&lsig=AB86z5UeOn4OogW0C4a8bS6qWd9q#lrd=0x47761a25fffa9c07:0x9cd7b9c0eca91400,3' },
+            sindelfingen:{ id:'sindelfingen',name:'o2 Shop Sindelfingen',ort:'Sindelfingen',adresse:'Mercedes Straße 12, 71063 Sindelfingen', tel:'07031 - 2645439' },
+            'stuttgart-vaihingen': { id:'stuttgart-vaihingen', name:'o2 Shop Stuttgart-Vaihingen', ort:'Stuttgart-Vaihingen', adresse:'Robert-Koch-Straße 2, 70563 Stuttgart', tel:'0711 - 78781490' },
+            traunreut:   { id:'traunreut',   name:'o2 Shop Traunreut',   ort:'Traunreut',   adresse:'Werner-von-Siemens-Straße 2, 83301 Traunreut', tel:'08669 - 355730',
+                reviewUrl:'https://www.google.com/search?hl=de-DE&gl=de&q=o2+Shop,+Werner-von-Siemens-Stra%C3%9Fe+2,+83301+Traunreut&ludocid=12050970998856843992&lsig=AB86z5UFUCLlIQfdLeY6ZojcjYAz#lrd=0x477676de3add476f:0xa73da646516582d8,3' },
+            traunstein:  { id:'traunstein',  name:'o2 Shop Traunstein',  ort:'Traunstein',  adresse:'Maximilian Straße 25, 83278 Traunstein', tel:'0861 - 9098696',
+                reviewUrl:'https://www.google.com/search?hl=de-DE&gl=de&q=o2+Shop,+Maximilianstra%C3%9Fe+25,+83278+Traunstein&ludocid=11504423822033114738&lsig=AB86z5WgtSc1woi6jR06tr0w7gPJ#lrd=0x47767ad0d28d3f3f:0x9fa7ec8359d35672,3' },
+            waldkraiburg:{ id:'waldkraiburg',name:'o2 Shop Waldkraiburg',ort:'Waldkraiburg',adresse:'Berliner Straße 21, 84478 Waldkraiburg', tel:'08638 - 984792',
+                reviewUrl:'https://www.google.com/search?hl=de-DE&gl=de&q=o2+Shop,+Berliner+Str.+21,+84478+Waldkraiburg&ludocid=18146953535647000167&lsig=AB86z5WpTQAbO87lRbHT_p2g3mm-#lrd=0x4775e5f522cf36cd:0xfbd6ee180fc22667,3' },
+            wasserburg:  { id:'wasserburg',  name:'o2 Shop Wasserburg',  ort:'Wasserburg',  adresse:'Bahnhofplatz 1, 83512 Wasserburg', tel:'08071 - 904170' },
+        };
+        // Kurz-Codes für den Gutschein-Präfix (z.B. AAL, CR, SHA). Bei Bedarf
+        // hier fest überschreiben; sonst wird ein sinnvoller Code abgeleitet.
+        const _SHOP_CODE = {
+            aalen:'AAL', crailsheim:'CR', 'schwaebisch-hall':'SHA', freilassing:'FRE',
+            neuoetting:'NEU', rosenheim:'RO', sindelfingen:'SIN', 'stuttgart-vaihingen':'STG',
+            traunreut:'TRR', traunstein:'TRS', waldkraiburg:'WAK', wasserburg:'WAS'
+        };
+        // Fehlende reviewUrl/qrUrl automatisch aus Name+Adresse (Google-Maps-Suche) füllen
+        Object.values(SHOPS).forEach(s => {
+            const q = s.name + ', ' + s.adresse;
+            if (!s.reviewUrl) s.reviewUrl = _gmapsSearch(q);
+            if (!s.qrUrl)     s.qrUrl     = s.reviewUrl;
+            if (!s.code)      s.code      = _SHOP_CODE[s.id] || (s.ort||'XX').replace(/[^A-Za-zÄÖÜäöü]/g,'').slice(0,3).toUpperCase();
+        });
+
+        const CURRENT_SHOP_ID = (() => {
+            const norm = (v) => {
+                let s = (v || '').toString().trim().toLowerCase();
+                s = s.replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss');
+                s = s.replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+                // ein paar bequeme Aliase
+                if (s === 'sha' || s === 'schwaebischhall' || s === 'hall') return 'schwaebisch-hall';
+                if (s === 'stuttgart' || s === 'vaihingen') return 'stuttgart-vaihingen';
+                if (s === 'neuoetting' || s === 'neuotting') return 'neuoetting';
+                return s;
+            };
+            try {
+                const params = new URLSearchParams(window.location.search || '');
+                const fromLink = norm(params.get('shop') || params.get('filiale') || '');
+                if (fromLink && SHOPS[fromLink]) { try { localStorage.setItem('ps_shop', fromLink); } catch(_){} return fromLink; }
+                const saved = norm(localStorage.getItem('ps_shop') || '');
+                if (saved && SHOPS[saved]) return saved;
+            } catch(e) {}
+            return 'aalen';
+        })();
+        const CURRENT_SHOP = SHOPS[CURRENT_SHOP_ID] || SHOPS.aalen;
+        try { window.__PS_SHOP = CURRENT_SHOP_ID; } catch(e) {}
 
         // ═══════════════════════════════════════════════════════════════
         // 🏷️ MARKE (v58) – o2 / Telekom / Vodafone
@@ -10563,8 +10646,8 @@ const [showSkipReasonModal, setShowSkipReasonModal] = useState(false);
 
             
             const [customerSignature, setCustomerSignature] = useState(null);
-            const SHOP_STAMP_TEXT = "o2 Shop Aalen";
-            const SHOP_STAMP_QR = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent('https://www.google.com/search?hl=de-DE&gl=de&q=o2+Shop,+N%C3%B6rdlicher+Stadtgraben+6,+73430+Aalen&ludocid=4324091216711915803&lsig=AB86z5X0AwWKxq2sT1xY0AQEbR3v#lrd=0x47991b873100b771:0x3c02420d3480191b,3')}&color=003CA6&bgcolor=ffffff&margin=1`;
+            const SHOP_STAMP_TEXT = CURRENT_SHOP.name;
+            const SHOP_STAMP_QR = _qrFor(CURRENT_SHOP.qrUrl);
  
             
             const [imageTransform, setImageTransform] = useState({ 
@@ -11652,7 +11735,7 @@ const isOfferAreaNonEmpty = React.useCallback((k) => {
                                 filename: pdfFileName,
                                 title: 'PDF ist fertig!',
                                 subtitle: 'Jetzt mit dem Kunden teilen oder öffnen.',
-                                shareText: 'Ihr persönliches Angebot vom o2 Shop Aalen'
+                                shareText: 'Ihr persönliches Angebot vom ' + CURRENT_SHOP.name
                             });
                         } catch(e) { triggerToast('PDF-Fehler: ' + (e && e.message ? e.message : 'Unbekannt')); }
                     })();
@@ -11919,7 +12002,7 @@ const handleFinishOfferClick = () => {
                             if (raw === 'Max Mustermann' || raw.toLowerCase() === 'unknown') return '–';
                             return raw;
                         })(),
-                        shop: 'Telekom',
+                        shop: CURRENT_SHOP.name, shopId: CURRENT_SHOP.id,
                         beratungsId: beratungsId || '',
                         result: computedResult,
                         skipReasonText: (typeof skipReason === 'string' && skipReason.trim() && skipReason !== 'Übersprungen (Admin)') ? skipReason.trim().slice(0, 200) : '',
@@ -12022,7 +12105,7 @@ const handleFinishOfferClick = () => {
                             if (raw === 'Max Mustermann' || raw.toLowerCase() === 'unknown') return '–';
                             return raw;
                         })(),
-                        shop: 'Telekom',
+                        shop: CURRENT_SHOP.name, shopId: CURRENT_SHOP.id,
                         beratungsId: beratungsId || '',
                         result: computedResult,
                         skipReasonText: (typeof skipReason === 'string' && skipReason.trim() && skipReason !== 'Übersprungen (Admin)') ? skipReason.trim().slice(0, 200) : '',
@@ -14189,7 +14272,7 @@ const yy = String(now.getFullYear()).slice(-2);
 const mm = pad2(now.getMonth()+1);
 const dd = pad2(now.getDate());
 const shareDateDisplay = now.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' });
-const voucherCode = `AAL-O2-${yy}/${mm}/${dd}`;
+const voucherCode = `${CURRENT_SHOP.code}-O2-${yy}/${mm}/${dd}`;
 
 // Simple QR (remote) – falls offline/blocked, bleibt das Feld leer, Textlink bleibt sichtbar
 const qrUrl = (data, color='003CA6') => `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(data)}&color=${color}&bgcolor=ffffff&margin=1`;
@@ -14207,10 +14290,10 @@ const makeCoverContent = () => {
         <div class="share-cover-date">VOM ${shareDateDisplay}</div>
 
         <div class="share-cover-card">
-          <div class="share-cover-chip">AALEN</div>
+          <div class="share-cover-chip">${(CURRENT_SHOP.ort || '').toUpperCase()}</div>
           <div class="share-cover-shop">
-            <div class="share-cover-shop-name">o2 Shop Aalen</div>
-            <div class="share-cover-shop-addr">Nördlicher Stadtgraben 6, 73430 Aalen</div>
+            <div class="share-cover-shop-name">${CURRENT_SHOP.name}</div>
+            <div class="share-cover-shop-addr">${CURRENT_SHOP.adresse}</div>
           </div>
         </div>
       </div>
@@ -14226,7 +14309,7 @@ const makeOutroContent = () => {
     // den Knowledge-Panel mit prominentem "Rezension schreiben"-Button.
     // Hinweis: Für das 1-Klick-Sterne-Popup ist die ChIJ-Place-ID nötig (writereview-Flow).
     // window.GOOGLE_REVIEW_URL kann jederzeit mit der finalen writereview-URL überschrieben werden.
-    const googleReviewUrl = (window.GOOGLE_REVIEW_URL || 'https://www.google.com/search?q=o2+Shop+Aalen&ludocid=4324091216711915803&hl=de#lrd=0x47991b873100b771:0x3c02420d3480191b,1');
+    const googleReviewUrl = (window.GOOGLE_REVIEW_URL || CURRENT_SHOP.reviewUrl);
     const instagramUrl = (window.INSTAGRAM_URL || 'https://www.instagram.com/o2shop_aalen/');
     wrap.innerHTML = `
       <div class="share-outro-grid">
@@ -14251,7 +14334,7 @@ const makeOutroContent = () => {
         <div class="share-outro-card">
           <div class="share-outro-icon">⌁</div>
           <div class="share-outro-h">Folgen & Sparen</div>
-          <div class="share-outro-p">News, Aktionen und Deals<br/>direkt aus Aalen.</div>
+          <div class="share-outro-p">News, Aktionen und Deals<br/>direkt aus ${CURRENT_SHOP.ort}.</div>
           <div class="share-outro-qr">
             <img crossorigin="anonymous" referrerpolicy="no-referrer" src="${qrUrl(instagramUrl,'bc1888')}" alt="QR Insta" />
           </div>
@@ -15787,7 +15870,7 @@ const handlePDFShare = async () => {
             filename,
             title: 'PDF ist fertig!',
             subtitle: 'Jetzt mit dem Kunden teilen oder öffnen.',
-            shareText: 'Ihr persönliches Angebot vom o2 Shop Aalen'
+            shareText: 'Ihr persönliches Angebot vom ' + CURRENT_SHOP.name
         });
 } catch (err) {
         hideOverlay();
@@ -16276,7 +16359,7 @@ const resumeParkedArchive = async (entry, rufValue) => {
                             if (raw === 'Max Mustermann' || raw.toLowerCase() === 'unknown') return '–';
                             return raw;
                         })(),
-                        shop: 'Telekom',
+                        shop: CURRENT_SHOP.name, shopId: CURRENT_SHOP.id,
                         beratungsId: beratungsId || '',
                         result: computedResult,
                         dslProvider: _dslProvider,          // v58: aktueller DSL-Anbieter des Kunden
