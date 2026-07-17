@@ -7189,7 +7189,7 @@ const BundleModal = ({ isOpen, onClose, url, onImportToCanvas, triggerToast, tar
 
     useEffect(() => {
         if (!isOpen) return;
-        setCurrentUrl(ensureEmbedUrl(url || BUNDLE_URL || ''));
+        setCurrentUrl(ensureEmbedUrl(url || (typeof BUNDLE_URL !== 'undefined' ? BUNDLE_URL : '') || ''));
     }, [isOpen, url]);
 
     const ensureEmbedUrl = (rawUrl) => {
@@ -7212,7 +7212,7 @@ const BundleModal = ({ isOpen, onClose, url, onImportToCanvas, triggerToast, tar
     const buildBundleUrl = (bundleId) => {
         // IMPORTANT: always build from the stable base URL (url/BUNDLE_URL), not from currentUrl.
         // currentUrl may contain temporary states like #admin or user-edited params.
-        const rawBase = String((url || BUNDLE_URL || currentUrl || '')).trim();
+        const rawBase = String((url || (typeof BUNDLE_URL !== 'undefined' ? BUNDLE_URL : '') || currentUrl || '')).trim();
         if (!rawBase) return '';
         try {
             const u = new URL(rawBase, window.location.href);
@@ -8426,8 +8426,8 @@ const highResHTML = buildHighResBundleHTML(d);
                                                             {(skipReasonsByAgent[agent] || []).length > 0 && <span style={{color:'#94a3b8'}}> digital</span>}
                                                         </td>
                                                         <td style={{padding:'12px',display:'flex',gap:'6px'}}>
-                                                            <button onClick={async () => { try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: limit + 5, ts: new Date().toISOString() }, { merge: true }); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count, limit: limit + 5} })); triggerToast(`✓ Limit für ${agent} auf ${limit+5} erhöht`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#3b82f6',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>+5</button>
-                                                            <button onClick={async () => { try { const db = getStatsDb(); const monthKey = new Date().toISOString().slice(0,7); await db.collection('skip_limits').doc(`skip_${agent}_${monthKey}`).set({ agent, month: monthKey, count: 0, ts: new Date().toISOString() }); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count: 0, limit} })); triggerToast(`✓ Skip-Zähler für ${agent} resetet`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#f59e0b',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>Reset</button>
+                                                            <button onClick={async () => { try { const db = getStatsDb(); await db.collection('skip_limits').doc(`limit_${agent}`).set({ agent, max_limit: limit + 5, ts: new Date().toISOString() }, { merge: true }); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count, limit: limit + 5} })); if (typeof triggerToast === 'function') triggerToast(`✓ Limit für ${agent} auf ${limit+5} erhöht`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#3b82f6',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>+5</button>
+                                                            <button onClick={async () => { try { const db = getStatsDb(); const monthKey = new Date().toISOString().slice(0,7); await db.collection('skip_limits').doc(`skip_${agent}_${monthKey}`).set({ agent, month: monthKey, count: 0, ts: new Date().toISOString() }); } catch(_){} setSkipAgentsData(prev => ({ ...prev, [agent]: {count: 0, limit} })); if (typeof triggerToast === 'function') triggerToast(`✓ Skip-Zähler für ${agent} resetet`); }} style={{padding:'4px 10px',fontSize:'10px',background:'#f59e0b',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontWeight:700}}>Reset</button>
                                                         </td>
                                                     </tr>
                                                 );
@@ -10514,7 +10514,7 @@ const handleOpenStats = () => { setShowPinLock(true); };
             // → das native Teilen-Menü (WhatsApp/Mail/Outlook) öffnet zuverlässig.
             // ══════════════════════════════════════════════════════════════════
             const [shareSheet, setShareSheet] = useState(null); // { file, title, subtitle, shareText, resolve }
-            const openShareSheet = ({ blob, filename, title, subtitle, shareText }) => new Promise((resolve) => {
+            const openShareSheet = ({ blob, filename, title, subtitle, shareText, archiveMode }) => new Promise((resolve) => {
                 let file = null;
                 try { file = new File([blob], filename, { type: 'application/pdf' }); } catch(e) { file = null; }
                 if (!file) { resolve(false); return; }
@@ -10523,6 +10523,7 @@ const handleOpenStats = () => { setShowPinLock(true); };
                     title: title || 'PDF ist fertig!',
                     subtitle: subtitle || 'Jetzt mit dem Kunden teilen oder öffnen.',
                     shareText: shareText || 'Ihr persönliches Angebot',
+                    archiveMode: !!archiveMode,
                     resolve
                 });
             });
@@ -13119,7 +13120,7 @@ const handleFinishOfferClick = () => {
                     else if (ref === offerCostSmartphoneRef) key = 'cost_smartphone';
                     else if (ref === offerAgentRef) key = 'agent_name';
                     else if (ref === offerDateRef) key = 'date_field';
-                    else if (ref === offerValidUntilRef || ref === offerValidUntilModalRef) key = 'offer_valid_until';
+                    else if (ref === offerValidUntilRef || (typeof offerValidUntilModalRef !== 'undefined' && ref === offerValidUntilModalRef)) key = 'offer_valid_until';
                     else if (ref === skipReasonCanvasRef) key = 'skip_reason';
                     else if (ref === beratungsIdCanvasRef) key = 'beratungs_id';
 
@@ -15686,6 +15687,11 @@ const uploadPdfToPowerAutomate = async ({ blob, type, dsl, agent, dateISO, trigg
 const backgroundAutoUpload = async ({ type, triggerToast, ensurePrintHeaders, getAgent, getDsl }) => {
     try {
         if (!window.html2pdf) return; // offline/CDN block -> skip
+        // v60: Wenn KEIN Upload-Ziel konfiguriert ist (Platzhalter), gar nicht erst
+        // rendern. Spart auf jedem Tablet unnötige Rechenlast bei jedem Abschluss.
+        const _webhook = (() => { try { return localStorage.getItem('ps_pa_webhook') || ''; } catch(e) { return ''; } })();
+        const _hasTarget = (typeof PA_UPLOAD_URL === 'string' && PA_UPLOAD_URL && !PA_UPLOAD_URL.includes('PASTE_POWER_AUTOMATE_FLOW_URL_HERE')) || !!_webhook;
+        if (!_hasTarget) return; // Upload-Funktion bewusst inaktiv → nichts rendern, nichts senden
         const blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders, { addPageNumbers: true });
         const dateISO = new Date().toISOString();
         const agent = getAgent();
@@ -15888,7 +15894,7 @@ const handlePDFShare = async () => {
 };
 
 
-// ── Wiederverwendbarer Versand: System-Teilen direkt öffnen (PDF dran) ──
+// ── Wiederverwendbarer Versand: Teilen-Dialog (PDF dran) mit Mail-Fallback ──
 const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
     const saveBlob = (b) => {
         const url = URL.createObjectURL(b);
@@ -15897,26 +15903,55 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
         setTimeout(()=>URL.revokeObjectURL(url), 8000);
     };
 
-    // Archiv-Sonderfall: Kein eigenes Zwischenfenster mehr. Das native
-    // Teilen-Menü wird sofort geöffnet; Mail/Outlook kann direkt gewählt werden.
+    // ══ v60: ERST DIREKT TEILEN, Fenster nur als Notnagel ════════════════════
+    // Wunsch: kein Zwischenfenster. Wir versuchen daher SOFORT den nativen
+    // Teilen-Dialog. Klappt das (PC, oder wenn die Geste noch frisch ist) →
+    // fertig, kein Fenster. Nur falls navigator.share() die Geste ablehnt
+    // (typisch auf Tablets nach langem Rendern), zeigen wir das Ein-Tipp-Fenster,
+    // damit NIE „gar nichts" passiert.
     try {
-        const file = new File([blob], dateiname, { type: 'application/pdf' });
-        const shareData = {
-            title: betreff,
-            text: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${betreff}`,
-            files: [file]
-        };
-        const fileShareSupported = !!navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }));
-        if (fileShareSupported) {
-            await navigator.share(shareData);
-            try { triggerToast('„Mail/Outlook" wählen → Adresse ' + ARCHIV_EMAIL + ' → senden. PDF ist bereits angehängt.'); } catch(e){}
-            return true;
+        let file = null;
+        try { file = new File([blob], dateiname, { type: 'application/pdf' }); } catch(e) { file = null; }
+        const canShareFile = file && navigator.canShare && navigator.canShare({ files: [file] });
+        if (canShareFile && typeof navigator.share === 'function') {
+            try {
+                await navigator.share({
+                    files: [file],
+                    title: dateiname,
+                    text: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${betreff}`
+                });
+                // Erfolgreich direkt geteilt → kein Fenster nötig
+                try { triggerToast('„Mail/Outlook" wählen → ' + ARCHIV_EMAIL + ' → senden. PDF ist angehängt.'); } catch(e){}
+                return;
+            } catch (errShare) {
+                // AbortError = Nutzer hat das native Menü selbst geschlossen → NICHT erneut nerven
+                if (errShare && (errShare.name === 'AbortError' || /abort/i.test(errShare.message || ''))) {
+                    try { triggerToast('Abgebrochen. PDF nicht gesendet.'); } catch(e){}
+                    return;
+                }
+                // sonst: Geste war abgelaufen o.ä. → unten Fenster als Notnagel zeigen
+            }
         }
-    } catch(e) {
-        // Abbrechen bedeutet wirklich abbrechen – nicht zusätzlich Mail/Download öffnen.
-        if (e && e.name === 'AbortError') return false;
-        try { console.warn('Direktes Archiv-Teilen fehlgeschlagen:', e); } catch(_) {}
-    }
+    } catch(e) { /* weiter zum Fenster-Notnagel */ }
+
+    // ══ NOTNAGEL: Ein-Tipp-Fenster (nur wenn Direkt-Teilen nicht ging) ════════
+    // Der Tap auf "Jetzt teilen" liefert die frische Geste → native Menü öffnet
+    // zuverlässig, PDF schon angehängt.
+    try {
+        const ok = await openShareSheet({
+            blob,
+            filename: dateiname,
+            title: '📨 Angebot ins Archiv senden',
+            subtitle: 'Jetzt teilen → „Mail" oder „Outlook" wählen → an ' + ARCHIV_EMAIL + ' senden.\nBetreff bitte NICHT ändern.',
+            shareText: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${betreff}`,
+            archiveMode: true
+        });
+        if (ok) {
+            try { triggerToast('„Mail/Outlook" wählen → Adresse ' + ARCHIV_EMAIL + ' → senden. PDF ist bereits angehängt.'); } catch(e){}
+            return;
+        }
+        // Nutzer hat den Teilen-Dialog abgebrochen → PDF sichern + Mail-App als Notnagel
+    } catch(e) {}
 
     // Fallback: PDF speichern und Mail-Programm mit fertiger Adresse/Betreff öffnen
     try { saveBlob(blob); } catch(e) {}
@@ -15932,7 +15967,6 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
         }
     }, 400);
     try { triggerToast('PDF gespeichert → Outlook öffnet. Bitte PDF anhängen & senden.'); } catch(e){}
-    return true;
 };
 
 // ── ARCHIV: PDF speichern + vorausgefüllte Mail an Archiv-Postfach öffnen ──
@@ -15968,7 +16002,8 @@ const sendToArchive = async (archiveType, opts = {}) => {
         }
     }
 
-    // Kein Platzhalter-Tab und kein eigener Teilen-Dialog mehr nötig.
+    // v57b: Kein Platzhalter-Tab mehr nötig – dispatchArchiveMail() zeigt nach dem
+    // Rendern den Teilen-Dialog ("Jetzt teilen"), dessen Tap die frische Geste liefert.
 
     // Rufnummer + Agent für Betreff/Dateiname
     // Rufnummer: zuerst die im Druck-Flow eingegebene (sharedMsisdnRef), dann Formular, dann leer
@@ -16000,23 +16035,13 @@ const sendToArchive = async (archiveType, opts = {}) => {
     let blob = null;
     try {
         if (!window.html2pdf) { try { triggerToast('PDF-Generator nicht verfügbar.'); } catch(e){} return; }
-        // Wenn die PDF im vorherigen Schritt bereits erstellt wurde, sofort teilen.
-        // Dadurch bleibt die Nutzer-Geste erhalten und das System-Menü öffnet direkt.
-        try {
-            if (window.__lastPdfBlob instanceof Blob && window.__lastPdfBlob.size > 0) {
-                blob = window.__lastPdfBlob;
-            }
-        } catch(e) {}
-
-        if (!blob) {
-            document.body.classList.add('exporting');
-            showOverlay2('Archiv-PDF wird erstellt …');
-            const _t = setTimeout(()=>{ try{hideOverlay2();}catch(e){} try{document.body.classList.remove('exporting');}catch(e){} }, 30000);
-            blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders, { addPageNumbers: true });
-            clearTimeout(_t);
-            hideOverlay2();
-            try { document.body.classList.remove('exporting'); } catch(e){}
-        }
+        document.body.classList.add('exporting');
+        showOverlay2('Archiv-PDF wird erstellt …');
+        const _t = setTimeout(()=>{ try{hideOverlay2();}catch(e){} try{document.body.classList.remove('exporting');}catch(e){} }, 30000);
+        blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders, { addPageNumbers: true });
+        clearTimeout(_t);
+        hideOverlay2();
+        try { document.body.classList.remove('exporting'); } catch(e){}
 
         // ── Rufnummer fehlt? ──
         // Bei Abschluss (askForNumber=true): Popup Nummer eingeben ODER Parken.
@@ -16062,7 +16087,7 @@ const sendToArchive = async (archiveType, opts = {}) => {
             ? `Abschluss_${_datum}_${_ruf || 'keineNr'}.pdf`
             : `Angebot_${_datum}_${_kunde || 'keinName'}.pdf`;
 
-        return await dispatchArchiveMail(blob, _dateiname, _betreff);
+        await dispatchArchiveMail(blob, _dateiname, _betreff);
 
     } catch (err) {
         hideOverlay2();
@@ -16085,8 +16110,7 @@ const resumeParkedArchive = async (entry, rufValue) => {
     const _betreff = `PENCIL|${entry.type}|${entry.datum}|${_ruf}|${entry.agent || 'unbekannt'}`;
     const _dateiname = `${entry.type === 'abschluss' ? 'Abschluss' : 'Angebot'}_${entry.datum}_${_ruf}.pdf`;
     try {
-        const sent = await dispatchArchiveMail(entry.pdfBlob, _dateiname, _betreff);
-        if (sent === false) return false;
+        await dispatchArchiveMail(entry.pdfBlob, _dateiname, _betreff);
         await deleteParkedArchiveEntry(entry.id);
         try { triggerToast('✅ Nachgetragen und versendet.'); } catch(e){}
         try { refreshParkedCount(); } catch(e){}
@@ -16497,7 +16521,7 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                 const _ask = (_typ === 'abschluss');
                                 // Finalisiertes Cloud-Angebot: bei Abschluss aus der Cloud entfernen
                                 if (_typ === 'abschluss' && loadedOfferId) { try { cloudDeleteOffer(loadedOfferId); } catch(e){} }
-                                try { sendToArchive(_typ, { askForNumber: _ask }); } catch(e) {}
+                                setTimeout(() => { try { sendToArchive(_typ, { askForNumber: _ask }); } catch(e) {} }, 250);
                             }
                         }
                     }} onPrint={() => { try { ensurePrintHeaders(); } catch(e) {} handlePrint(); }} onShare={handlePDFShare} onPdfPrint={handleRecommendedPdfPrint} onFinish={() => {
@@ -16512,7 +16536,7 @@ const resumeParkedArchive = async (entry, rufValue) => {
                             const _typ = customerSignature ? 'abschluss' : 'angebot';
                             const _ask = (_typ === 'abschluss');
                             if (_typ === 'abschluss' && loadedOfferId) { try { cloudDeleteOffer(loadedOfferId); } catch(e){} }
-                            // Archiv anstoßen: System-Teilen wird ohne Zwischenfenster geöffnet.
+                            // Archiv anstoßen (Teilen-Dialog). NICHT awaiten – sonst hängt Android.
                             try { sendToArchive(_typ, { askForNumber: _ask }); } catch(e) {}
                             // Sicherheits-Reload nach 60s, falls der Nutzer den Teilen-Dialog
                             // gar nicht mehr schließt. Normal lädt visibilitychange früher neu.
@@ -16887,7 +16911,8 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                     📤 Jetzt teilen
                                 </button>
 
-                                {/* Alternativ: nur öffnen (drucken / manuell speichern) */}
+                                {/* Alternativ: nur öffnen (drucken / manuell speichern) – im Archiv-Modus ausgeblendet */}
+                                {!shareSheet.archiveMode && (
                                 <button onClick={() => {
                                     const s = shareSheet;
                                     setShareSheet(null);
@@ -16901,6 +16926,13 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                 }} style={{width:'100%',padding:'12px',borderRadius:'14px',border:'1.5px solid #e2e8f0',background:'#f8fafc',color:'#475569',fontWeight:700,fontSize:'14px',cursor:'pointer'}}>
                                     In neuem Tab öffnen
                                 </button>
+                                )}
+                                {shareSheet.archiveMode && (
+                                <button onClick={() => { const s = shareSheet; setShareSheet(null); try { s.resolve && s.resolve(false); } catch(e){} }}
+                                    style={{width:'100%',padding:'10px',borderRadius:'14px',border:'none',background:'transparent',color:'#94a3b8',fontWeight:700,fontSize:'13px',cursor:'pointer'}}>
+                                    Abbrechen
+                                </button>
+                                )}
                             </div>
                         </div>
                     ), document.body)}
