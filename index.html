@@ -99,6 +99,42 @@
     })();
     </script>
 
+    <!-- ══════════════════════════════════════════════════════════════════════
+         VERSION + CACHE-BUSTING  (v53.0)
+         ──────────────────────────────────────────────────────────────────────
+         Android/Chrome hält HTML von GitHub Pages sehr hartnäckig im Cache.
+         Ohne diesen Block sieht der Mitarbeiter nach einem Update weiterhin
+         die ALTE Version – Fehler wirken dann "nicht behoben".
+         Bei neuer Version: APP_VERSION unten hochsetzen. Fertig.
+         ══════════════════════════════════════════════════════════════════════ -->
+    <script>
+    window.APP_VERSION = '53.0';
+    (function(){
+        try {
+            var KEY = 'pencil_app_version';
+            var last = null;
+            try { last = localStorage.getItem(KEY); } catch(e){}
+            if (last !== window.APP_VERSION) {
+                try { localStorage.setItem(KEY, window.APP_VERSION); } catch(e){}
+                // Alte Caches (Service Worker / CacheStorage) wegräumen
+                try {
+                    if (window.caches && caches.keys) {
+                        caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); });
+                    }
+                } catch(e){}
+                // Einmalig mit Versions-Parameter neu laden → frisches HTML vom Server
+                try {
+                    var u = new URL(window.location.href);
+                    if (u.searchParams.get('v') !== window.APP_VERSION) {
+                        u.searchParams.set('v', window.APP_VERSION);
+                        window.location.replace(u.toString());
+                    }
+                } catch(e){}
+            }
+        } catch(e){}
+    })();
+    </script>
+
     <!-- 1. Tailwind CSS -->
     <!-- Performance: CDN preconnect + preload critical scripts -->
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -9647,6 +9683,7 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
     const [hasSig, setHasSig] = React.useState(false);
     const [busy, setBusy] = React.useState(false);
     const [previewState, setPreviewState] = React.useState('none'); // none|loading|ok|error
+    const [previewErr, setPreviewErr] = React.useState(''); // v53: echter Fehlergrund für Diagnose
     const [workCopy, setWorkCopy] = React.useState(null); // v52: eingebettete Arbeitskopie
     const sigRef = React.useRef(null);
     const previewRef = React.useRef(null);
@@ -9671,7 +9708,7 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
         (async () => {
             try {
                 setPreviewState('loading');
-                if (!(await waitForPdfjs())) { if (!cancelled) setPreviewState('error'); return; }
+                if (!(await waitForPdfjs())) { if (!cancelled) { setPreviewErr('pdf.js nicht geladen (CDN blockiert?)'); setPreviewState('error'); } return; }
                 if (cancelled) return;
                 if (!window.__pdfjsWorkerSet) {
                     window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
@@ -9722,7 +9759,16 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
                     cont.appendChild(d);
                 }
                 setPreviewState('ok');
-            } catch (e) { if (!cancelled) setPreviewState('error'); }
+            } catch (e) {
+                if (!cancelled) {
+                    // v53: Grund merken – ohne ihn ist auf dem Tablet keine Diagnose möglich
+                    var _m = '';
+                    try { _m = (e && (e.name ? e.name + ': ' : '') + (e.message || String(e))) || 'unbekannt'; } catch(_) { _m = 'unbekannt'; }
+                    setPreviewErr(_m.slice(0, 160));
+                    try { console.warn('[VORSCHAU] Fehler:', e); } catch(_){}
+                    setPreviewState('error');
+                }
+            }
         })();
         return () => { cancelled = true; };
     }, [fileBytes]);
@@ -9856,7 +9902,12 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
                         <div style={{marginBottom:'14px'}}>
                             <div style={{fontSize:'12px',fontWeight:900,color:'#64748b',marginBottom:'6px'}}>VORSCHAU – gemeinsam mit dem Kunden prüfen</div>
                             {previewState === 'loading' && <div style={{textAlign:'center',color:'#94a3b8',fontSize:'12px',padding:'16px',background:'#f1f5f9',borderRadius:'12px'}}>Vorschau wird erstellt…</div>}
-                            {previewState === 'error' && <div style={{textAlign:'center',color:'#b45309',fontSize:'12px',padding:'12px',background:'#fffbeb',borderRadius:'12px'}}>Vorschau nicht möglich – das PDF kann trotzdem unterschrieben & gesendet werden.</div>}
+                            {previewState === 'error' && (
+                                <div style={{textAlign:'center',color:'#b45309',fontSize:'12px',padding:'12px',background:'#fffbeb',borderRadius:'12px'}}>
+                                    Vorschau nicht möglich – das PDF kann trotzdem unterschrieben &amp; gesendet werden.
+                                    {previewErr && <div style={{marginTop:'6px',fontSize:'10px',color:'#a16207',wordBreak:'break-word'}}>Grund: {previewErr}</div>}
+                                </div>
+                            )}
                             <div ref={previewRef} style={{display: previewState==='ok' ? 'block' : 'none',maxHeight:'300px',overflowY:'auto',background:'#e2e8f0',borderRadius:'12px',padding:'6px'}} />
                         </div>
                     )}
@@ -11009,7 +11060,13 @@ const fileInputRef = useRef(null);
                     const page = pdfDoc.getPage(pdfDoc.getPageCount() - 1);
                     const { width } = page.getSize();
                     const sigW = 170;
-                    const sigH = sigW * (png.height / png.width);
+                    // v53: Auf Android kam der Canvas gelegentlich mit 0 Breite/Höhe an.
+                    // (png.height / png.width) war dann NaN bzw. Infinity → pdf-lib
+                    // zeichnete eine riesige schwarze Fläche über die Seite.
+                    // Deshalb Seitenverhältnis prüfen und notfalls auf 2:1 zurückfallen.
+                    let _ratio = (png && png.width > 0) ? (png.height / png.width) : 0.5;
+                    if (!isFinite(_ratio) || _ratio <= 0 || _ratio > 3) _ratio = 0.5;
+                    const sigH = Math.max(20, Math.min(160, sigW * _ratio));
                     const x = width - sigW - 28;
                     // Weißer Hintergrund-Kasten, damit die Unterschrift auf jedem Inhalt lesbar ist
                     page.drawRectangle({ x: x - 8, y: 22, width: sigW + 16, height: sigH + 26, color: rgb(1,1,1), opacity: 0.9, borderColor: rgb(0.08,0.4,0.2), borderWidth: 1 });
@@ -19563,6 +19620,44 @@ const resumeParkedArchive = async (entry, rufValue) => {
             forcePrintLandscape();
             setTimeout(function() { _origPrint(); }, 50);
         };
+    })();
+    </script>
+
+    <!-- ══ VERSIONS-BADGE (v53.0) ══════════════════════════════════════════
+         Zeigt unten links die laufende Version. Damit ist auf dem Tablet
+         sofort erkennbar, ob nach einem Update wirklich die neue Datei läuft.
+         Tippen = harter Reload mit frischem Versions-Parameter.
+         Beim Drucken/PDF-Export ausgeblendet.
+         ══════════════════════════════════════════════════════════════════ -->
+    <style>
+      #pencilVersionBadge{
+        position:fixed; left:8px; bottom:6px; z-index:2147483000;
+        font:700 10px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+        color:#94a3b8; background:rgba(255,255,255,0.82);
+        padding:4px 8px; border-radius:999px; border:1px solid #e2e8f0;
+        cursor:pointer; user-select:none; -webkit-user-select:none;
+        backdrop-filter:blur(3px); letter-spacing:.3px;
+      }
+      @media print{ #pencilVersionBadge{ display:none !important; } }
+      body.exporting #pencilVersionBadge{ display:none !important; }
+    </style>
+    <script>
+    (function(){
+        try {
+            var b = document.createElement('div');
+            b.id = 'pencilVersionBadge';
+            b.textContent = 'v' + (window.APP_VERSION || '?');
+            b.title = 'Version – tippen für Neuladen';
+            b.addEventListener('click', function(){
+                try {
+                    var u = new URL(window.location.href);
+                    u.searchParams.set('v', window.APP_VERSION);
+                    u.searchParams.set('t', Date.now());
+                    window.location.replace(u.toString());
+                } catch(e) { window.location.reload(true); }
+            });
+            document.body.appendChild(b);
+        } catch(e){}
     })();
     </script>
 </body>
