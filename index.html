@@ -9656,11 +9656,23 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
     // ── v51.5: PDF-Vorschau (pdf.js) – Kunde sieht sein Angebot VOR der Unterschrift ──
     React.useEffect(() => {
         if (!fileBytes) { setPreviewState('none'); return; }
-        if (!window.pdfjsLib) { setPreviewState('error'); return; }
         let cancelled = false;
+        // v73: pdf.js kommt per CDN und ist auf Android/langsamem Netz beim
+        // ersten Öffnen manchmal noch nicht da. Vorher wurde sofort 'error'
+        // gesetzt – jetzt wird bis zu 6 Sek. gewartet.
+        const waitForPdfjs = async () => {
+            for (let i = 0; i < 60; i++) {
+                if (window.pdfjsLib) return true;
+                await new Promise(r => setTimeout(r, 100));
+                if (cancelled) return false;
+            }
+            return !!window.pdfjsLib;
+        };
         (async () => {
             try {
                 setPreviewState('loading');
+                if (!(await waitForPdfjs())) { if (!cancelled) setPreviewState('error'); return; }
+                if (cancelled) return;
                 if (!window.__pdfjsWorkerSet) {
                     window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
                     window.__pdfjsWorkerSet = true;
@@ -9684,7 +9696,10 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
                 const cont = previewRef.current; if (!cont || cancelled) return;
                 cont.innerHTML = '';
                 const maxPages = Math.min(doc.numPages, 8);
-                const cw = (cont.clientWidth || 380) - 12;
+                // v73: Das Vorschau-Div ist bis zum State 'ok' per display:none
+                // versteckt → clientWidth ist 0 → scale wurde negativ/0 und
+                // page.render() warf. Deshalb Fallback-Breite erzwingen.
+                const cw = Math.max(180, (cont.clientWidth || cont.offsetWidth || 380) - 12);
                 for (let i = 1; i <= maxPages; i++) {
                     if (cancelled) return;
                     const page = await doc.getPage(i);
@@ -9714,13 +9729,29 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
 
     React.useEffect(() => {
         const c = sigRef.current; if (!c) return;
-        const dpr = window.devicePixelRatio || 1;
-        const rect = c.getBoundingClientRect();
-        c.width = rect.width * dpr; c.height = rect.height * dpr;
-        const ctx = c.getContext('2d');
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.strokeStyle = '#1e3a8a'; ctx.lineWidth = 2.4;
+        const setup = () => {
+            const dpr = window.devicePixelRatio || 1;
+            const rect = c.getBoundingClientRect();
+            // v73: Auf Android liefert getBoundingClientRect() im Portal-Modal
+            // beim ersten Lauf teilweise 0 → Canvas bliebe 0x0 und der spätere
+            // toDataURL() ergäbe einen schwarzen/leeren Balken im PDF.
+            const w = rect.width || c.clientWidth || 300;
+            const h = rect.height || c.clientHeight || 150;
+            c.width = Math.max(1, Math.round(w * dpr));
+            c.height = Math.max(1, Math.round(h * dpr));
+            const ctx = c.getContext('2d');
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            // v73: WEISSER Hintergrund statt transparent. PNG mit Alpha wird beim
+            // Einbetten ins PDF sonst als schwarze Fläche gerendert.
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, w, h);
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            ctx.strokeStyle = '#1e3a8a'; ctx.lineWidth = 2.4;
+        };
+        setup();
+        // Zweiter Lauf nach dem Layout – fängt Android-Timing ab
+        const t = setTimeout(setup, 120);
+        return () => clearTimeout(t);
     }, []);
 
     const pos = (e) => {
@@ -9730,7 +9761,21 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
     const down = (e) => { e.preventDefault(); const c = sigRef.current; if (!c) return; try { c.setPointerCapture(e.pointerId); } catch(_){} drawingRef.current = true; const ctx = c.getContext('2d'); const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); };
     const move = (e) => { if (!drawingRef.current) return; e.preventDefault(); const ctx = sigRef.current.getContext('2d'); const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); setHasSig(true); };
     const up = () => { drawingRef.current = false; };
-    const clearSig = () => { const c = sigRef.current; if (!c) return; const ctx = c.getContext('2d'); ctx.clearRect(0, 0, c.width, c.height); setHasSig(false); };
+    const clearSig = () => {
+        const c = sigRef.current; if (!c) return;
+        const ctx = c.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        // v73: Nicht transparent löschen, sondern WEISS füllen – sonst schwarzer Balken im PDF.
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.restore();
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.strokeStyle = '#1e3a8a'; ctx.lineWidth = 2.4;
+        setHasSig(false);
+    };
 
     const pickFile = async (e) => {
         const f = e.target.files && e.target.files[0];
@@ -9747,7 +9792,19 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
         if (!canSend) return;
         setBusy(true);
         try {
-            const sigDataUrl = sigRef.current.toDataURL('image/png');
+            // v73: Unterschrift auf eine DECKEND WEISSE Fläche kopieren.
+            // Sicherheitsnetz gegen den schwarzen Balken: selbst wenn der Canvas
+            // aus irgendeinem Grund noch Transparenz enthält, ist das Ergebnis
+            // hier garantiert opak.
+            const src = sigRef.current;
+            const flat = document.createElement('canvas');
+            flat.width = Math.max(1, src.width);
+            flat.height = Math.max(1, src.height);
+            const fctx = flat.getContext('2d');
+            fctx.fillStyle = '#ffffff';
+            fctx.fillRect(0, 0, flat.width, flat.height);
+            fctx.drawImage(src, 0, 0);
+            const sigDataUrl = flat.toDataURL('image/png');
             await onSend({ bytes: fileBytes, ruf: ruf.trim(), sigDataUrl, fileName });
         } finally { setBusy(false); }
     };
