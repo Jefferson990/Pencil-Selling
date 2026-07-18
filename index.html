@@ -9693,6 +9693,8 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
     const [busy, setBusy] = React.useState(false);
     const [previewState, setPreviewState] = React.useState('none'); // none|loading|ok|error
     const [previewErr, setPreviewErr] = React.useState(''); // v53: echter Fehlergrund für Diagnose
+    const [filePruefung, setFilePruefung] = React.useState('none'); // v53: none|pruefe|ok|fehler
+    const [fileFehler, setFileFehler] = React.useState(''); // v53: Klartext-Grund für den Mitarbeiter
     const [workCopy, setWorkCopy] = React.useState(null); // v52: eingebettete Arbeitskopie
     const sigRef = React.useRef(null);
     const previewRef = React.useRef(null);
@@ -9832,17 +9834,76 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
         setHasSig(false);
     };
 
+    // ══════════════════════════════════════════════════════════════════════
+    // v53: PDF-PRÜFUNG BEIM EINLESEN
+    // ──────────────────────────────────────────────────────────────────────
+    // Android/OneDrive: Wird eine Datei aus "Mit mir geteilt" direkt angetippt,
+    // übergibt der OneDrive-Content-Provider die Datei, BEVOR der Download
+    // fertig ist. Die App bekam dann einen leeren/halben Puffer:
+    //   → Vorschau scheiterte ("Vorschau nicht möglich")
+    //   → pdf-lib stempelte auf kaputte Bytes → schwarzer Balken im PDF
+    // Ein gültiges PDF beginnt mit "%PDF" und endet mit "%%EOF".
+    // Deshalb: prüfen, bei Bedarf erneut versuchen, sonst klar melden.
+    // ══════════════════════════════════════════════════════════════════════
+    const pruefePdfPuffer = (buf) => {
+        if (!buf) return { ok: false, grund: 'Datei konnte nicht gelesen werden.' };
+        if (buf.byteLength === 0) return { ok: false, grund: 'Datei ist leer (0 Byte) – Download war noch nicht fertig.' };
+        // Untergrenze bewusst niedrig: ein gültiges Minimal-PDF hat ~400 Byte.
+        // Die eigentliche Vollständigkeitsprüfung macht %PDF + %%EOF unten.
+        if (buf.byteLength < 300) return { ok: false, grund: 'Datei ist unvollständig (nur ' + buf.byteLength + ' Byte).' };
+        try {
+            const kopf = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, 5));
+            if (kopf.indexOf('%PDF') !== 0) return { ok: false, grund: 'Das ist keine vollständige PDF-Datei.' };
+            // Ende prüfen: %%EOF steht in den letzten ~2 KB
+            const schwanzLen = Math.min(2048, buf.byteLength);
+            const schwanz = new TextDecoder('latin1').decode(new Uint8Array(buf, buf.byteLength - schwanzLen, schwanzLen));
+            if (schwanz.indexOf('%%EOF') === -1) return { ok: false, grund: 'PDF ist abgeschnitten – Download war noch nicht fertig.' };
+        } catch (err) {
+            return { ok: false, grund: 'Datei konnte nicht geprüft werden.' };
+        }
+        return { ok: true, grund: '' };
+    };
+
     const pickFile = async (e) => {
         const f = e.target.files && e.target.files[0];
         if (!f) return;
+        setFileFehler('');
+        setFileName(f.name);
+        setFileBytes(null);
+        setFilePruefung('pruefe');
+        let letzterGrund = '';
         try {
-            const buf = await f.arrayBuffer();
-            setFileBytes(buf); setFileName(f.name);
-        } catch(err) { setFileName(''); setFileBytes(null); }
+            // Bis zu 3 Versuche: OneDrive lädt im Hintergrund oft noch nach.
+            for (let versuch = 1; versuch <= 3; versuch++) {
+                let buf = null;
+                try { buf = await f.arrayBuffer(); } catch (err) { buf = null; }
+                const pruef = pruefePdfPuffer(buf);
+                if (pruef.ok) {
+                    setFileBytes(buf);
+                    setFilePruefung('ok');
+                    setFileFehler('');
+                    try { e.target.value = ''; } catch(_){}
+                    return;
+                }
+                letzterGrund = pruef.grund;
+                if (versuch < 3) await new Promise(r => setTimeout(r, 900));
+            }
+            // Alle Versuche fehlgeschlagen → NICHT übernehmen, klar melden.
+            setFileBytes(null);
+            setFilePruefung('fehler');
+            setFileFehler(letzterGrund);
+        } catch (err) {
+            setFileBytes(null);
+            setFilePruefung('fehler');
+            setFileFehler('Datei konnte nicht geladen werden.');
+        }
         try { e.target.value = ''; } catch(_){}
     };
 
-    const canSend = !!(fileBytes && ruf.trim() && hasSig && !busy);
+    // v53: Senden NUR mit geprüftem, vollständigem PDF.
+    // Verhindert, dass ein unvollständiges OneDrive-PDF unterschrieben
+    // und mit schwarzem Balken ins Archiv geschickt wird.
+    const canSend = !!(fileBytes && filePruefung === 'ok' && ruf.trim() && hasSig && !busy);
     const doSend = async () => {
         if (!canSend) return;
         setBusy(true);
@@ -9879,8 +9940,8 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
                     <input ref={fileInputRef} type="file" accept="application/pdf" onChange={pickFile} style={{display:'none'}} />
                     <div style={{display:'flex',gap:'8px',marginBottom:'6px'}}>
                         <button onClick={() => fileInputRef.current && fileInputRef.current.click()}
-                            style={{flex:1,padding:'13px',borderRadius:'12px',border: fileBytes ? '2px solid #bbf7d0' : '2px dashed #cbd5e1',background: fileBytes ? '#f0fdf4' : '#f8fafc',color: fileBytes ? '#14532d' : '#475569',fontWeight:800,fontSize:'13px',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:'8px',minWidth:0}}>
-                            <span style={{fontSize:'17px',flexShrink:0}}>{fileBytes ? '✅' : '📄'}</span>
+                            style={{flex:1,padding:'13px',borderRadius:'12px',border: filePruefung === 'fehler' ? '2px solid #fecaca' : fileBytes ? '2px solid #bbf7d0' : '2px dashed #cbd5e1',background: filePruefung === 'fehler' ? '#fef2f2' : fileBytes ? '#f0fdf4' : '#f8fafc',color: filePruefung === 'fehler' ? '#991b1b' : fileBytes ? '#14532d' : '#475569',fontWeight:800,fontSize:'13px',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:'8px',minWidth:0}}>
+                            <span style={{fontSize:'17px',flexShrink:0}}>{filePruefung === 'pruefe' ? '⏳' : filePruefung === 'fehler' ? '⚠️' : fileBytes ? '✅' : '📄'}</span>
                             <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{fileName || 'PDF auswählen'}</span>
                         </button>
                         {angeboteUrl && (
@@ -9891,7 +9952,23 @@ const PdfFinalizeModal = ({ onClose, onSend, onRestore, angeboteUrl }) => {
                             </button>
                         )}
                     </div>
-                    <div style={{fontSize:'10.5px',color:'#94a3b8',marginBottom:'12px'}}>Direktweg: „PDF auswählen" → im Dialog <b>OneDrive/SharePoint</b> wählen (OneDrive-App nötig, kein Download). Alternativ: „📂 Ordner" → PDF herunterladen.</div>
+                    {filePruefung === 'pruefe' && (
+                        <div style={{fontSize:'11.5px',color:'#1d4ed8',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:'10px',padding:'10px',marginBottom:'10px',fontWeight:700}}>
+                            ⏳ PDF wird geprüft – bitte kurz warten…
+                        </div>
+                    )}
+                    {filePruefung === 'fehler' && (
+                        <div style={{fontSize:'11.5px',color:'#991b1b',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:'10px',padding:'11px',marginBottom:'10px'}}>
+                            <div style={{fontWeight:900,marginBottom:'4px'}}>⚠️ PDF nicht vollständig geladen</div>
+                            <div style={{marginBottom:'6px'}}>{fileFehler}</div>
+                            <div style={{fontWeight:800,color:'#7f1d1d'}}>So geht es:</div>
+                            <div style={{marginTop:'2px',lineHeight:1.5}}>
+                                In OneDrive rechts neben der Datei auf den <b>Pfeil ⇥</b> tippen (Datei wird heruntergeladen) –
+                                erst danach hier auswählen. Alternativ die PDF vorher in OneDrive herunterladen.
+                            </div>
+                        </div>
+                    )}
+                    <div style={{fontSize:'10.5px',color:'#94a3b8',marginBottom:'12px'}}>Wichtig bei <b>OneDrive „Mit mir geteilt"</b>: Datei nicht direkt antippen – erst über den <b>Pfeil ⇥</b> herunterladen lassen, sonst kommt die PDF unvollständig an. Alternativ: „📂 Ordner" → PDF herunterladen.</div>
 
                     {/* v52: Arbeitskopie erkannt → komplettes Pencil Selling wiederherstellen */}
                     {workCopy && (
@@ -10507,18 +10584,44 @@ const handleOpenStats = () => { setShowPinLock(true); };
                     'Mobilfunk': 'net-router-5g',
                 };
 
-                let targetSlotIds = [];
+                // ══════════════════════════════════════════════════════════════
+                // v53: WLAN-Gerät und Router GETRENNT suchen
+                // ──────────────────────────────────────────────────────────────
+                // Vorher lagen WLAN- und Router-Slots in EINER Liste und die
+                // Suche brach beim ersten Treffer ab. Folge: Wurde der exakte
+                // WLAN-Slot nicht gefunden, gewann der Router und das
+                // WLAN-Gerät fiel unter den Tisch.
+                //
+                // ERSATZ-KETTE: Der Planer empfiehlt technisch korrekt
+                // "Powerline", in der Verkaufsmappe ist dasselbe Gerät aber
+                // ggf. nur als "Repeater"/WLAN-Verstärker angelegt.
+                // ══════════════════════════════════════════════════════════════
+                const SLOT_ERSATZ = {
+                    'net-powerline': ['net-repeater', 'net-mesh'],
+                    'net-repeater':  ['net-powerline', 'net-mesh'],
+                    'net-mesh':      ['net-repeater', 'net-powerline'],
+                };
+
+                let wlanSlotIds = [];
                 if (wlanRec?.sol) {
                     const key = Object.keys(WLAN_SLOT_MAP).find(k => wlanRec.sol.toLowerCase().includes(k.toLowerCase()));
-                    if (key) targetSlotIds.push(WLAN_SLOT_MAP[key]);
+                    if (key) {
+                        wlanSlotIds.push(WLAN_SLOT_MAP[key]);
+                        for (const ersatz of (SLOT_ERSATZ[WLAN_SLOT_MAP[key]] || [])) {
+                            if (!wlanSlotIds.includes(ersatz)) wlanSlotIds.push(ersatz);
+                        }
+                    }
                 }
+
+                let routerSlotIds = [];
                 if (techList?.length) {
                     for (const tech of techList) {
                         const key = Object.keys(TECH_ROUTER_MAP).find(k => tech.toLowerCase().includes(k.toLowerCase()));
-                        if (key) { const s = TECH_ROUTER_MAP[key]; if (!targetSlotIds.includes(s)) targetSlotIds.push(s); break; }
+                        if (key) { routerSlotIds.push(TECH_ROUTER_MAP[key]); break; }
                     }
                 }
-                if (!targetSlotIds.length) { setNetBundleMatched(null); return; }
+
+                if (!wlanSlotIds.length && !routerSlotIds.length) { setNetBundleMatched(null); return; }
 
                 let bundles = [];
 
@@ -10541,15 +10644,28 @@ const handleOpenStats = () => { setShowPinLock(true); };
                     } catch(e) {}
                 }
 
-                // Passenden aktiven Bundle suchen
-                let matched = null;
-                for (const slotId of targetSlotIds) {
-                    const found = bundles.find(b => b.id === slotId && b.active === true && b.titel?.trim());
-                    if (found) { matched = found; break; }
-                }
+                const sucheSlot = (ids) => {
+                    for (const slotId of ids) {
+                        const found = bundles.find(b => b.id === slotId && b.active === true && b.titel?.trim());
+                        if (found) return found;
+                    }
+                    return null;
+                };
+
+                // v53: WLAN-Gerät hat Vorrang, Router nur als Zweitbestes.
+                // So verdrängt der Router nicht mehr das WLAN-Gerät.
+                const wlanTreffer   = sucheSlot(wlanSlotIds);
+                const routerTreffer = sucheSlot(routerSlotIds);
+                const matched = wlanTreffer || routerTreffer;
 
                 setNetBundleMatched(matched || null);
-                if (matched) triggerToast(`📶 Passend gefunden: "${matched.titel}"`);
+                if (matched) {
+                    triggerToast(`📶 Passend gefunden: "${matched.titel}"`);
+                } else {
+                    // v53: Vorher passierte hier gar nichts – der Verkäufer sah
+                    // nur, dass "nichts gezogen" wurde, ohne jeden Grund.
+                    triggerToast('📶 Kein passendes Netzwerk-Bundle in der Aktionsmappe hinterlegt.');
+                }
 
             }, [getAmDb, triggerToast]);
 
