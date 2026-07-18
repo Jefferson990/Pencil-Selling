@@ -10513,8 +10513,36 @@ const handleOpenStats = () => { setShowPinLock(true); };
             // diesen Dialog zeigen. Der Tipp auf "Jetzt teilen" ist eine NEUE Geste
             // → das native Teilen-Menü (WhatsApp/Mail/Outlook) öffnet zuverlässig.
             // ══════════════════════════════════════════════════════════════════
-            const [shareSheet, setShareSheet] = useState(null); // { file, title, subtitle, shareText, resolve }
-            const openShareSheet = ({ blob, filename, title, subtitle, shareText, archiveMode }) => new Promise((resolve) => {
+            // Einheitlicher Workflow-Betreff für JEDE Systemteilung / Outlook-Mail.
+            // Exaktes Format: PENCIL|typ|datum|rufnummer|vorname
+            // Power Automate wertet die Felder per split(Betreff, '|') aus.
+            const buildShareSubject = (filename, explicitSubject = '') => {
+                const fixed = String(explicitSubject || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+                if (fixed) return fixed;
+
+                const fileName = String(filename || '');
+                const datumTreffer = fileName.match(/(\d{4}-\d{2}-\d{2})(?:\.pdf)?$/i);
+                const datum = datumTreffer ? datumTreffer[1] : new Date().toISOString().slice(0,10);
+                const typ = (customerSignature || /^Abschluss[_\s-]/i.test(fileName)) ? 'abschluss' : 'angebot';
+
+                let ruf = '';
+                try { ruf = sharedMsisdnRef.current || String(textData?.Rufnummer || '').replace(/[^0-9+]/g, '').trim(); } catch(e) {}
+                // Sicherheits-Fallback: Bei Abschluss-Dateien steht die Rufnummer im Dateinamen.
+                if (!ruf && typ === 'abschluss') {
+                    const rufTreffer = fileName.match(/^Abschluss_([^_]+)_\d{4}-\d{2}-\d{2}\.pdf$/i);
+                    if (rufTreffer) ruf = String(rufTreffer[1] || '').replace(/[^0-9+]/g, '');
+                }
+
+                let agent = '';
+                try { agent = getAgentDisplayNameForUpload(); if (agent === '–') agent = ''; } catch(e) {
+                    try { agent = String(textData?.AgentName || LINK_EMPLOYEE || '').trim(); } catch(_) {}
+                }
+
+                return buildArchivBetreff(typ, datum, ruf, agent);
+            };
+
+            const [shareSheet, setShareSheet] = useState(null); // { file, title, subtitle, shareText, shareSubject, resolve }
+            const openShareSheet = ({ blob, filename, title, subtitle, shareText, shareSubject, archiveMode }) => new Promise((resolve) => {
                 let file = null;
                 try { file = new File([blob], filename, { type: 'application/pdf' }); } catch(e) { file = null; }
                 if (!file) { resolve(false); return; }
@@ -10523,6 +10551,7 @@ const handleOpenStats = () => { setShowPinLock(true); };
                     title: title || 'PDF ist fertig!',
                     subtitle: subtitle || 'Jetzt mit dem Kunden teilen oder öffnen.',
                     shareText: shareText || 'Ihr persönliches Angebot',
+                    shareSubject: buildShareSubject(filename, shareSubject),
                     archiveMode: !!archiveMode,
                     resolve
                 });
@@ -10937,8 +10966,10 @@ const fileInputRef = useRef(null);
                     try { _agent = getAgentDisplayNameForUpload(); if (_agent === '–') _agent = ''; } catch(e) {}
                     const _datum = new Date().toISOString().slice(0,10);
                     const _ruf = (ruf || '').replace(/[^0-9+]/g, '');
-                    const _betreff = `PENCIL|abschluss|${_datum}|${_ruf}|${_agent || 'unbekannt'}`;
-                    const _name = `Abschluss_${_datum}_${_ruf}.pdf`;
+                    // ⚠️ GESPERRT: festes 5-Feld-Format (siehe buildArchivBetreff)
+                    const _betreff = buildArchivBetreff('abschluss', _datum, _ruf, _agent);
+                    // ⚠️ GESPERRT: PENCIL_-Präfix (siehe buildArchivDateiname)
+                    const _name = buildArchivDateiname('abschluss', _datum, _ruf);
                     setShowPdfFinalize(false);
                     await dispatchArchiveMail(blob, _name, _betreff);
                 } catch (e) {
@@ -12064,7 +12095,7 @@ const handleFinishOfferClick = () => {
                                             id: 'park_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
                                             ts: Date.now(), type: 'abschluss', agent: _agent, datum: _datum,
                                             kunde: (sharedKundeRef.current || textData?.Kundenname || '').toString().trim(), // v57: getippter Name bevorzugt
-                                            dateiname: `Abschluss_${_datum}.pdf`, pdfBlob: blob
+                                            dateiname: buildArchivDateiname('abschluss', _datum, ''), pdfBlob: blob
                                         });
                                         archiveSentRef.current = true;
                                         try { triggerToast('🅿️ Geparkt – 24h über das Archiv-Symbol abrufbar.'); } catch(e){}
@@ -15895,7 +15926,131 @@ const handlePDFShare = async () => {
 
 
 // ── Wiederverwendbarer Versand: Teilen-Dialog (PDF dran) mit Mail-Fallback ──
+/* ══════════════════════════════════════════════════════════════════════════
+   ⚠️  GESPERRT – NICHT ÄNDERN  ⚠️
+   ARCHIV-BETREFF: FESTES 5-FELD-FORMAT
+   ──────────────────────────────────────────────────────────────────────────
+   PENCIL|<typ>|<datum>|<rufnummer>|<agent>
+   Beispiel: PENCIL|abschluss|2026-06-27|491761234567|Diego
+
+   Power Automate sortiert per split(Betreff,'|')[1] == 'abschluss' / 'angebot'
+   in die SharePoint-Ordner /Freigegebene Dokumente/Abschluesse bzw. /Angebote.
+
+   >>> JEDES zusätzliche Feld (z.B. Kundenname als 6. Feld) BRICHT DEN FLOW. <<<
+   Diese Funktion ist die EINZIGE Stelle, die Betreffzeilen erzeugt.
+   Sie schneidet zusätzliche Felder hart ab und säubert Pipes/Umlaute.
+   ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   ⚠️  GESPERRT – NICHT ÄNDERN  ⚠️
+   ARCHIV-DATEINAME: PENCIL_-Präfix steuert die Power-Automate-Sortierung
+   ──────────────────────────────────────────────────────────────────────────
+   PENCIL_Abschluss_2026-07-18_491761234567.pdf
+   PENCIL_Angebot_2026-07-18_Mustermann.pdf
+
+   Power Automate prüft den DATEINAMEN, nicht den Betreff:
+     if(startsWith(items('...')?['name'], 'PENCIL_Abschluss_'), 'abschluss', 'angebot')
+
+   Warum Dateiname statt Betreff: Outlook/iOS/Windows überschreiben den Betreff
+   teilweise mit dem Dateinamen. Der Dateiname dagegen kommt aus DIESER App und
+   wird auf keinem Weg verändert – Android-Share, Windows-mailto, manuell.
+
+   >>> Groß-/Kleinschreibung ist relevant: 'PENCIL_Abschluss_' / 'PENCIL_Angebot_'
+   >>> Präfix NIEMALS entfernen – sonst greift die Sortierung nicht.
+   ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   ⚠️  GESPERRT – NICHT ÄNDERN  ⚠️
+   ARCHIV-DATEINAME – muss mit PENCIL_ beginnen
+   ──────────────────────────────────────────────────────────────────────────
+   PENCIL_Abschluss_2026-07-18_491761234567.pdf
+   PENCIL_Angebot_2026-07-18_Mustermann.pdf
+
+   WARUM das PENCIL_-Präfix wichtig ist, obwohl der Flow den BETREFF prüft:
+   Outlook (v.a. Android/iOS) ersetzt den Betreff teilweise durch den
+   DATEINAMEN des Anhangs. Beobachtet: Betreff war "Abschluss_2026-07-18_
+   0000000.pdf" statt der gesendeten PENCIL|...-Zeile. Der Trigger filtert
+   auf "Betreff enthält PENCIL" → ohne Präfix löst der Flow dann NICHT aus.
+   Mit dem Präfix enthält auch dieser Ersatz-Betreff das Wort PENCIL.
+   ══════════════════════════════════════════════════════════════════════════ */
+const ARCHIV_DATEI_PREFIX = 'PENCIL_'; // NIEMALS entfernen
+const buildArchivDateiname = (typ, datum, kennung) => {
+    // Typ auf die zwei erlaubten Werte begrenzen
+    let _typ = String(typ || '').toLowerCase() === 'abschluss' ? 'Abschluss' : 'Angebot';
+
+    // Datum immer YYYY-MM-DD
+    let _datum = String(datum || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(_datum)) {
+        const d = new Date();
+        _datum = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    // Kennung (Rufnummer bzw. Kundenname) dateisystem-sicher machen:
+    // Umlaute umschreiben, alles Übrige auf Buchstaben/Ziffern/Bindestrich reduzieren.
+    let _kenn = String(kennung == null ? '' : kennung)
+        .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue')
+        .replace(/Ä/g,'Ae').replace(/Ö/g,'Oe').replace(/Ü/g,'Ue').replace(/ß/g,'ss')
+        .replace(/[^A-Za-z0-9+\-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 40);
+    if (!_kenn) _kenn = (_typ === 'Abschluss') ? 'keineNr' : 'keinName';
+
+    return `${ARCHIV_DATEI_PREFIX}${_typ}_${_datum}_${_kenn}.pdf`;
+};
+
+const ARCHIV_BETREFF_FELDER = 5; // NIEMALS erhöhen
+const buildArchivBetreff = (typ, datum, rufnummer, agent) => {
+    // Feld säubern: keine Pipes, keine Zeilenumbrüche, keine Sonderzeichen
+    const clean = (v, fallback) => {
+        let s = String(v == null ? '' : v)
+            .replace(/[|\r\n\t]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        return s || fallback;
+    };
+    // Typ darf NUR 'abschluss' oder 'angebot' sein – daran hängt die Sortierung
+    let _typ = clean(typ, 'angebot').toLowerCase();
+    if (_typ !== 'abschluss' && _typ !== 'angebot') _typ = 'angebot';
+
+    // Datum immer YYYY-MM-DD
+    let _datum = clean(datum, '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(_datum)) {
+        const d = new Date();
+        _datum = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    const _ruf = clean(String(rufnummer).replace(/[^0-9+]/g, ''), 'keine-nr');
+    // Workflow-Regel: Position [4] enthält ausschließlich den Vornamen und ist nie leer.
+    const _agentVoll = clean(agent, 'unbekannt');
+    const _agent = (_agentVoll.split(/\s+/)[0] || 'unbekannt').trim();
+
+    const betreff = `PENCIL|${_typ}|${_datum}|${_ruf}|${_agent}`;
+
+    // Sicherheitsnetz: Sollte je jemand ein Feld anhängen → hart abschneiden
+    const teile = betreff.split('|');
+    if (teile.length !== ARCHIV_BETREFF_FELDER) {
+        try { console.warn('[ARCHIV] Betreff-Format korrigiert:', betreff); } catch(e){}
+        return teile.slice(0, ARCHIV_BETREFF_FELDER).join('|');
+    }
+    return betreff;
+};
+
 const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
+    // GESPERRT: Betreff wird hier nochmals validiert – 6. Feld wird entfernt.
+    // Fehlt der Betreff wider Erwarten, wird immer ein gültiger Ersatz erzeugt.
+    try {
+        let t = String(betreff || '').split('|');
+        if (t.length > ARCHIV_BETREFF_FELDER) {
+            betreff = t.slice(0, ARCHIV_BETREFF_FELDER).join('|');
+            t = String(betreff).split('|');
+            try { console.warn('[ARCHIV] Überzähliges Betreff-Feld entfernt.'); } catch(e){}
+        }
+        const valid = t.length === ARCHIV_BETREFF_FELDER && t[0] === 'PENCIL' && (t[1] === 'abschluss' || t[1] === 'angebot');
+        if (!valid) {
+            const fallbackType = /^Abschluss[_\s-]/i.test(String(dateiname || '')) ? 'abschluss' : 'angebot';
+            betreff = buildArchivBetreff(fallbackType, new Date().toISOString().slice(0,10), '', '');
+        }
+    } catch(e){}
+
     const saveBlob = (b) => {
         const url = URL.createObjectURL(b);
         const a = document.createElement('a'); a.href=url; a.download=dateiname;
@@ -15903,12 +16058,41 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
         setTimeout(()=>URL.revokeObjectURL(url), 8000);
     };
 
-    // ══ v60: ERST DIREKT TEILEN, Fenster nur als Notnagel ════════════════════
-    // Wunsch: kein Zwischenfenster. Wir versuchen daher SOFORT den nativen
-    // Teilen-Dialog. Klappt das (PC, oder wenn die Geste noch frisch ist) →
-    // fertig, kein Fenster. Nur falls navigator.share() die Geste ablehnt
-    // (typisch auf Tablets nach langem Rendern), zeigen wir das Ein-Tipp-Fenster,
-    // damit NIE „gar nichts" passiert.
+    // ══ v70: WINDOWS/DESKTOP → IMMER mailto (Betreff garantiert) ═════════════
+    // Grund: Unter Android übernimmt die Outlook-App das `title`-Feld von
+    // navigator.share() als Betreff. Windows kann das NICHT – dort gibt es kein
+    // Betreff-Feld beim Teilen, und das Outlook-Desktop-Programm ignoriert `title`.
+    // Deshalb geht Windows direkt auf mailto:, wo der Betreff in der URL steht
+    // und dadurch IMMER ankommt.
+    const _isTouchTablet = (() => {
+        try {
+            const ua = navigator.userAgent || '';
+            const isAndroid = /Android/i.test(ua);
+            const isIOS = /iPad|iPhone|iPod/i.test(ua)
+                || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1); // iPadOS meldet sich als Mac
+            return isAndroid || isIOS;
+        } catch(e) { return false; }
+    })();
+
+    if (!_isTouchTablet) {
+        // Desktop (Windows/Mac): PDF speichern + Outlook mit fertigem Betreff öffnen
+        try { saveBlob(blob); } catch(e) {}
+        const _bodyWin = encodeURIComponent(
+            'Bitte das soeben gespeicherte PDF anhängen und senden.\n\n' +
+            '(Betreff bitte NICHT ändern – wird automatisch einsortiert.)\n\n' +
+            'Datei: ' + dateiname
+        );
+        setTimeout(() => {
+            try { window.location.href = `mailto:${ARCHIV_EMAIL}?subject=${encodeURIComponent(betreff)}&body=${_bodyWin}`; } catch(e) {
+                try { window.open(`mailto:${ARCHIV_EMAIL}?subject=${encodeURIComponent(betreff)}&body=${_bodyWin}`, '_blank'); } catch(e2){}
+            }
+        }, 400);
+        try { triggerToast('PDF gespeichert → Outlook öffnet mit fertigem Betreff. Bitte PDF anhängen & senden.'); } catch(e){}
+        return;
+    }
+
+    // ══ v60: TABLET – ERST DIREKT TEILEN, Fenster nur als Notnagel ═══════════
+    // Auf Android/iOS übernimmt Mail/Outlook das `title`-Feld als Betreff.
     try {
         let file = null;
         try { file = new File([blob], dateiname, { type: 'application/pdf' }); } catch(e) { file = null; }
@@ -15917,8 +16101,13 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
             try {
                 await navigator.share({
                     files: [file],
-                    title: dateiname,
-                    text: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${betreff}`
+                    // Mail/Outlook übernimmt idealerweise `title` als Betreff.
+                    // ABER: Outlook Android/iOS setzt teilweise stattdessen den
+                    // DATEINAMEN ein. Deshalb beginnt der Dateiname mit PENCIL_,
+                    // damit der Trigger-Filter "Betreff enthält PENCIL" auch dann greift.
+                    title: betreff,
+                    // Betreff bewusst als ERSTE Zeile – einige Clients übernehmen sie.
+                    text: `${betreff}\n\nArchiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern.`
                 });
                 // Erfolgreich direkt geteilt → kein Fenster nötig
                 try { triggerToast('„Mail/Outlook" wählen → ' + ARCHIV_EMAIL + ' → senden. PDF ist angehängt.'); } catch(e){}
@@ -15944,6 +16133,7 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
             title: '📨 Angebot ins Archiv senden',
             subtitle: 'Jetzt teilen → „Mail" oder „Outlook" wählen → an ' + ARCHIV_EMAIL + ' senden.\nBetreff bitte NICHT ändern.',
             shareText: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${betreff}`,
+            shareSubject: betreff,
             archiveMode: true
         });
         if (ok) {
@@ -16075,17 +16265,16 @@ const sendToArchive = async (archiveType, opts = {}) => {
         // v57: Kundenname ggf. jetzt erst verfügbar (Popup lief oben) → neu einlesen
         try { _kunde = cleanKundeName(sharedKundeRef.current || textData?.Kundenname || _kunde || ''); } catch(e) {}
 
-        // Betreff nach festem Schema – DARAN sortiert Power Automate.
-        // Format bisher:  PENCIL|abschluss|2026-06-27|491761234567|Diego
-        // v57 NEU: hinten wird der Kundenname als 6. Feld angehängt (Reihenfolge der
-        // ersten 5 Felder bleibt gleich → bestehende Flows laufen unverändert weiter).
-        // Format neu:     PENCIL|angebot|2026-06-27|keine-nr|Diego|Mustermann
-        const _betreff = `PENCIL|${_type}|${_datum}|${_ruf || 'keine-nr'}|${_agent || 'unbekannt'}|${_kunde || 'kein-name'}`;
+        // ⚠️ GESPERRT: Betreff NUR über buildArchivBetreff() – festes 5-Feld-Format.
+        // Kundenname gehört NICHT in den Betreff (steht im Dateinamen).
+        const _betreff = buildArchivBetreff(_type, _datum, _ruf, _agent);
 
         // Dateiname: Abschluss → Rufnummer, Angebot → Kundenname. Immer mit Datum.
+        // ⚠️ GESPERRT: Dateiname NUR über buildArchivDateiname() – PENCIL_-Präfix
+        // steuert die Power-Automate-Sortierung.
         const _dateiname = (_type === 'abschluss')
-            ? `Abschluss_${_datum}_${_ruf || 'keineNr'}.pdf`
-            : `Angebot_${_datum}_${_kunde || 'keinName'}.pdf`;
+            ? buildArchivDateiname('abschluss', _datum, _ruf)
+            : buildArchivDateiname('angebot', _datum, _kunde);
 
         await dispatchArchiveMail(blob, _dateiname, _betreff);
 
@@ -16094,7 +16283,7 @@ const sendToArchive = async (archiveType, opts = {}) => {
         try { console.warn('Archiv-Versand fehlgeschlagen:', err); } catch(e){}
         // Fehler → PDF wenigstens lokal sichern
         try {
-            if (blob) { const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${_type||'Archiv'}_${_datum}.pdf`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),8000); }
+            if (blob) { const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=buildArchivDateiname(_type, _datum, _ruf || _kunde); document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),8000); }
         } catch(e2){}
         try { triggerToast('Archiv-PDF gespeichert – bitte manuell an ' + ARCHIV_EMAIL + ' senden.'); } catch(e){}
     } finally {
@@ -16107,8 +16296,8 @@ const sendToArchive = async (archiveType, opts = {}) => {
 const resumeParkedArchive = async (entry, rufValue) => {
     const _ruf = (rufValue || '').replace(/[^0-9+]/g, '').trim();
     if (!_ruf) { try { triggerToast('Bitte eine Rufnummer eingeben.'); } catch(e){} return false; }
-    const _betreff = `PENCIL|${entry.type}|${entry.datum}|${_ruf}|${entry.agent || 'unbekannt'}`;
-    const _dateiname = `${entry.type === 'abschluss' ? 'Abschluss' : 'Angebot'}_${entry.datum}_${_ruf}.pdf`;
+    const _betreff = buildArchivBetreff(entry.type, entry.datum, _ruf, entry.agent);
+    const _dateiname = buildArchivDateiname(entry.type, entry.datum, _ruf);
     try {
         await dispatchArchiveMail(entry.pdfBlob, _dateiname, _betreff);
         await deleteParkedArchiveEntry(entry.id);
@@ -16481,7 +16670,7 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                     const after = () => setTimeout(() => setShowReferralModal(true), 300);
                                     if (navigator.canShare && navigator.canShare({ files: [f] })) {
                                         // WICHTIG: share() synchron im Tap aufrufen → iOS zeigt den Teilen-Dialog sicher
-                                        navigator.share({ title: 'Angebot', text: 'Ihr persönliches Angebot', files: [f] })
+                                        navigator.share({ title: buildShareSubject(f.name), text: 'Ihr persönliches Angebot', files: [f] })
                                             .then(() => { triggerToast('✅ PDF geteilt.'); after(); })
                                             .catch(() => {
                                                 try { const url = URL.createObjectURL(f); window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 120000); } catch(e) {}
@@ -16882,7 +17071,30 @@ const resumeParkedArchive = async (entry, rufValue) => {
                             <div style={{background:'#fff',borderRadius:'20px',padding:'26px 24px',width:'min(92vw,420px)',textAlign:'center',boxShadow:'0 25px 60px rgba(0,0,0,0.35)'}}>
                                 <div style={{fontSize:'40px',marginBottom:'8px'}}>📄</div>
                                 <div style={{fontSize:'19px',fontWeight:900,color:'#0f172a',marginBottom:'6px'}}>{shareSheet.title}</div>
-                                <div style={{fontSize:'13px',color:'#64748b',marginBottom:'18px',lineHeight:1.45}}>{shareSheet.subtitle}</div>
+                                <div style={{fontSize:'13px',color:'#64748b',marginBottom:'14px',lineHeight:1.45}}>{shareSheet.subtitle}</div>
+
+                                {/* Betreff sichtbar + kopierbar. Falls die Mail-App den Betreff nicht
+                                    automatisch übernimmt, kann er hier 1:1 kopiert werden. */}
+                                {shareSheet.archiveMode && shareSheet.shareSubject && (
+                                <div style={{background:'#f1f5f9',border:'1.5px solid #cbd5e1',borderRadius:'12px',padding:'10px 12px',marginBottom:'14px',textAlign:'left'}}>
+                                    <div style={{fontSize:'11px',fontWeight:800,color:'#64748b',marginBottom:'4px',letterSpacing:'.03em'}}>BETREFF (nicht ändern)</div>
+                                    <div style={{fontSize:'12px',fontFamily:'monospace',color:'#0f172a',wordBreak:'break-all',lineHeight:1.4}}>{shareSheet.shareSubject}</div>
+                                    <button onClick={() => {
+                                        try {
+                                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                                navigator.clipboard.writeText(shareSheet.shareSubject);
+                                            } else {
+                                                const ta = document.createElement('textarea');
+                                                ta.value = shareSheet.shareSubject; ta.style.position='fixed'; ta.style.opacity='0';
+                                                document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+                                            }
+                                            triggerToast('✅ Betreff kopiert – in Outlook einfügen.');
+                                        } catch(e) { try { triggerToast('Kopieren nicht möglich – bitte abtippen.'); } catch(_){} }
+                                    }} style={{marginTop:'8px',width:'100%',padding:'8px',borderRadius:'9px',border:'1.5px solid #2563eb',background:'#fff',color:'#2563eb',fontWeight:800,fontSize:'12px',cursor:'pointer'}}>
+                                        📋 Betreff kopieren
+                                    </button>
+                                </div>
+                                )}
 
                                 {/* HAUPT-BUTTON: synchron im Tap → iOS/Android zeigen das Teilen-Menü sicher */}
                                 <button onClick={() => {
@@ -16898,7 +17110,7 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                         } catch(e) {}
                                     };
                                     if (navigator.share && navigator.canShare && navigator.canShare({ files: [s.file] })) {
-                                        navigator.share({ title: s.file.name, text: s.shareText, files: [s.file] })
+                                        navigator.share({ title: s.shareSubject || buildShareSubject(s.file.name), text: s.shareText, files: [s.file] })
                                             .then(() => { try { triggerToast('✅ PDF geteilt.'); } catch(e){} done(true); })
                                             .catch((err) => {
                                                 if (err && err.name === 'AbortError') { done(false); return; } // Nutzer hat abgebrochen
@@ -16925,6 +17137,29 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                     try { s.resolve && s.resolve(true); } catch(e){}
                                 }} style={{width:'100%',padding:'12px',borderRadius:'14px',border:'1.5px solid #e2e8f0',background:'#f8fafc',color:'#475569',fontWeight:700,fontSize:'14px',cursor:'pointer'}}>
                                     In neuem Tab öffnen
+                                </button>
+                                )}
+                                {/* Notausgang: Outlook direkt mit fertigem Betreff öffnen.
+                                    PDF wird gespeichert und muss angehängt werden – dafür stimmt
+                                    der Betreff garantiert (steht in der mailto-URL). */}
+                                {shareSheet.archiveMode && shareSheet.shareSubject && (
+                                <button onClick={() => {
+                                    const s = shareSheet;
+                                    setShareSheet(null);
+                                    try {
+                                        const url = URL.createObjectURL(s.file);
+                                        const a = document.createElement('a'); a.href = url; a.download = s.file.name;
+                                        document.body.appendChild(a); a.click(); a.remove();
+                                        setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch(e){} }, 8000);
+                                    } catch(e) {}
+                                    const body = encodeURIComponent('Bitte das soeben gespeicherte PDF anhängen und senden.\n\n(Betreff bitte NICHT ändern.)\n\nDatei: ' + s.file.name);
+                                    setTimeout(() => {
+                                        try { window.location.href = `mailto:${ARCHIV_EMAIL}?subject=${encodeURIComponent(s.shareSubject)}&body=${body}`; } catch(e){}
+                                    }, 400);
+                                    try { triggerToast('PDF gespeichert → Outlook öffnet mit fertigem Betreff.'); } catch(e){}
+                                    try { s.resolve && s.resolve(true); } catch(e){}
+                                }} style={{width:'100%',padding:'12px',borderRadius:'14px',border:'1.5px solid #e2e8f0',background:'#f8fafc',color:'#475569',fontWeight:700,fontSize:'14px',cursor:'pointer',marginBottom:'8px'}}>
+                                    ✉️ Outlook mit fertigem Betreff öffnen
                                 </button>
                                 )}
                                 {shareSheet.archiveMode && (
