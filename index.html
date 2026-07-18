@@ -10514,7 +10514,7 @@ const handleOpenStats = () => { setShowPinLock(true); };
             // → das native Teilen-Menü (WhatsApp/Mail/Outlook) öffnet zuverlässig.
             // ══════════════════════════════════════════════════════════════════
             // Einheitlicher Workflow-Betreff für JEDE Systemteilung / Outlook-Mail.
-            // Exaktes Format: PENCIL|typ|datum|rufnummer|vorname
+            // Exaktes Format: PENCIL|typ|datum|vorname  (v73: ohne Rufnummer)
             // Power Automate wertet die Felder per split(Betreff, '|') aus.
             const buildShareSubject = (filename, explicitSubject = '') => {
                 const fixed = String(explicitSubject || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -10966,7 +10966,7 @@ const fileInputRef = useRef(null);
                     try { _agent = getAgentDisplayNameForUpload(); if (_agent === '–') _agent = ''; } catch(e) {}
                     const _datum = new Date().toISOString().slice(0,10);
                     const _ruf = (ruf || '').replace(/[^0-9+]/g, '');
-                    // ⚠️ GESPERRT: festes 5-Feld-Format (siehe buildArchivBetreff)
+                    // ⚠️ GESPERRT: festes 4-Feld-Format (siehe buildArchivBetreff)
                     const _betreff = buildArchivBetreff('abschluss', _datum, _ruf, _agent);
                     // ⚠️ GESPERRT: PENCIL_-Präfix (siehe buildArchivDateiname)
                     const _name = buildArchivDateiname('abschluss', _datum, _ruf);
@@ -15928,15 +15928,20 @@ const handlePDFShare = async () => {
 // ── Wiederverwendbarer Versand: Teilen-Dialog (PDF dran) mit Mail-Fallback ──
 /* ══════════════════════════════════════════════════════════════════════════
    ⚠️  GESPERRT – NICHT ÄNDERN  ⚠️
-   ARCHIV-BETREFF: FESTES 5-FELD-FORMAT
+   ARCHIV-BETREFF: FESTES 4-FELD-FORMAT  (v73 – Rufnummer entfernt)
    ──────────────────────────────────────────────────────────────────────────
-   PENCIL|<typ>|<datum>|<rufnummer>|<agent>
-   Beispiel: PENCIL|abschluss|2026-06-27|491761234567|Diego
+   PENCIL|<typ>|<datum>|<agent>
+   Beispiel: PENCIL|abschluss|2026-07-18|Elvira
 
    Power Automate sortiert per split(Betreff,'|')[1] == 'abschluss' / 'angebot'
    in die SharePoint-Ordner /Freigegebene Dokumente/Abschluesse bzw. /Angebote.
 
-   >>> JEDES zusätzliche Feld (z.B. Kundenname als 6. Feld) BRICHT DEN FLOW. <<<
+   WARUM die Rufnummer raus ist: Sie war für die Sortierung nutzlos, konnte aber
+   je nach Eingabe (mit/ohne führende 0, 6/7/8-Anfang, leer) das Feld verändern
+   und den Flow kippen. Die Nummer steht weiterhin im DATEINAMEN – dort wird
+   sie gebraucht.
+
+   >>> JEDES zusätzliche Feld (z.B. Kundenname als 5. Feld) BRICHT DEN FLOW. <<<
    Diese Funktion ist die EINZIGE Stelle, die Betreffzeilen erzeugt.
    Sie schneidet zusätzliche Felder hart ab und säubert Pipes/Umlaute.
    ══════════════════════════════════════════════════════════════════════════ */
@@ -15997,8 +16002,11 @@ const buildArchivDateiname = (typ, datum, kennung) => {
     return `${ARCHIV_DATEI_PREFIX}${_typ}_${_datum}_${_kenn}.pdf`;
 };
 
-const ARCHIV_BETREFF_FELDER = 5; // NIEMALS erhöhen
+const ARCHIV_BETREFF_FELDER = 4; // NIEMALS ändern
 const buildArchivBetreff = (typ, datum, rufnummer, agent) => {
+    // v73: Rufnummer ist NICHT mehr Teil des Betreffs.
+    // Der Parameter bleibt in der Signatur, damit alle Aufrufstellen
+    // unverändert weiterlaufen – er wird bewusst ignoriert.
     // Feld säubern: keine Pipes, keine Zeilenumbrüche, keine Sonderzeichen
     const clean = (v, fallback) => {
         let s = String(v == null ? '' : v)
@@ -16018,12 +16026,11 @@ const buildArchivBetreff = (typ, datum, rufnummer, agent) => {
         _datum = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     }
 
-    const _ruf = clean(String(rufnummer).replace(/[^0-9+]/g, ''), 'keine-nr');
-    // Workflow-Regel: Position [4] enthält ausschließlich den Vornamen und ist nie leer.
+    // Workflow-Regel: Position [3] enthält ausschließlich den Vornamen und ist nie leer.
     const _agentVoll = clean(agent, 'unbekannt');
     const _agent = (_agentVoll.split(/\s+/)[0] || 'unbekannt').trim();
 
-    const betreff = `PENCIL|${_typ}|${_datum}|${_ruf}|${_agent}`;
+    const betreff = `PENCIL|${_typ}|${_datum}|${_agent}`;
 
     // Sicherheitsnetz: Sollte je jemand ein Feld anhängen → hart abschneiden
     const teile = betreff.split('|');
@@ -16035,7 +16042,7 @@ const buildArchivBetreff = (typ, datum, rufnummer, agent) => {
 };
 
 const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
-    // GESPERRT: Betreff wird hier nochmals validiert – 6. Feld wird entfernt.
+    // GESPERRT: Betreff wird hier nochmals validiert – überzählige Felder werden entfernt.
     // Fehlt der Betreff wider Erwarten, wird immer ein gültiger Ersatz erzeugt.
     try {
         let t = String(betreff || '').split('|');
@@ -16265,7 +16272,7 @@ const sendToArchive = async (archiveType, opts = {}) => {
         // v57: Kundenname ggf. jetzt erst verfügbar (Popup lief oben) → neu einlesen
         try { _kunde = cleanKundeName(sharedKundeRef.current || textData?.Kundenname || _kunde || ''); } catch(e) {}
 
-        // ⚠️ GESPERRT: Betreff NUR über buildArchivBetreff() – festes 5-Feld-Format.
+        // ⚠️ GESPERRT: Betreff NUR über buildArchivBetreff() – festes 4-Feld-Format.
         // Kundenname gehört NICHT in den Betreff (steht im Dateinamen).
         const _betreff = buildArchivBetreff(_type, _datum, _ruf, _agent);
 
