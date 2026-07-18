@@ -4404,6 +4404,13 @@ body.pdf-share-mode .offer-canvas-container:has(.offer-html-overlay-wrap) .offer
         })();
         const CURRENT_SHOP = SHOPS[CURRENT_SHOP_ID] || SHOPS.aalen;
         try { window.__PS_SHOP = CURRENT_SHOP_ID; } catch(e) {}
+        // v53: Shop-KENNUNG (id), nicht der Ort.
+        // Grund: In einer Stadt können mehrere Shops liegen – z.B.
+        // "o2 Crailsheim" und "Telekom Crailsheim". Der Ort wäre bei beiden
+        // "Crailsheim" und die Archiv-Ordner würden kollidieren.
+        // Die id ist dagegen eindeutig (crailsheim / telekom-crailsheim)
+        // und enthält nie Umlaute oder Leerzeichen.
+        try { window.__PS_SHOP_ORT = CURRENT_SHOP.id || CURRENT_SHOP_ID || ''; } catch(e) {}
 
         // ═══════════════════════════════════════════════════════════════
         // 🏷️ MARKE (v58) – o2 / Telekom / Vodafone
@@ -16188,11 +16195,13 @@ const handlePDFShare = async () => {
    ⚠️  GESPERRT – NICHT ÄNDERN  ⚠️
    ARCHIV-DATEINAME: PENCIL_-Präfix steuert die Power-Automate-Sortierung
    ──────────────────────────────────────────────────────────────────────────
-   PENCIL_Abschluss_2026-07-18_491761234567.pdf
-   PENCIL_Angebot_2026-07-18_Mustermann.pdf
+   v53 – MIT SHOP-ORT:
+   PENCIL_Aalen_Abschluss_2026-07-18_491761234567.pdf
+   PENCIL_Aalen_Angebot_2026-07-18_Mustermann.pdf
 
-   Power Automate prüft den DATEINAMEN, nicht den Betreff:
-     if(startsWith(items('...')?['name'], 'PENCIL_Abschluss_'), 'abschluss', 'angebot')
+   >>> ACHTUNG, FLOW ANPASSEN: Durch den Shop-Ort passt 'startsWith' NICHT
+   >>> mehr. Im Power Automate stattdessen 'contains' verwenden:
+     if(contains(toLower(items('...')?['name']), '_abschluss_'), 'abschluss', 'angebot')
 
    Warum Dateiname statt Betreff: Outlook/iOS/Windows überschreiben den Betreff
    teilweise mit dem Dateinamen. Der Dateiname dagegen kommt aus DIESER App und
@@ -16238,7 +16247,33 @@ const buildArchivDateiname = (typ, datum, kennung) => {
         .slice(0, 40);
     if (!_kenn) _kenn = (_typ === 'Abschluss') ? 'keineNr' : 'keinName';
 
-    return `${ARCHIV_DATEI_PREFIX}${_typ}_${_datum}_${_kenn}.pdf`;
+    // ══════════════════════════════════════════════════════════════════════
+    // v53: SHOP-ORT IM DATEINAMEN
+    // Ergebnis:  PENCIL_Aalen_Abschluss_2026-07-18_017612345.pdf
+    //            PENCIL_Aalen_Angebot_2026-07-18_Mustermann.pdf
+    //
+    // WICHTIG: Der Ort steht HINTER dem PENCIL_-Präfix, nicht davor.
+    // Grund: Power Automate prüft den Dateianfang. Stünde der Shop vorne,
+    // würde 'PENCIL_' nicht mehr am Anfang stehen und die Sortierung bräche.
+    // Der Flow muss daher auf 'contains' statt 'startsWith' geprüft werden,
+    // wenn er den Typ aus dem Dateinamen liest.
+    // ══════════════════════════════════════════════════════════════════════
+    let _shop = '';
+    try {
+        _shop = String(window.__PS_SHOP_ORT || '')
+            .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue')
+            .replace(/Ä/g,'ae').replace(/Ö/g,'oe').replace(/Ü/g,'ue').replace(/ß/g,'ss')
+            // Bindestrich bewusst ERLAUBT: die Shop-IDs nutzen ihn
+            // (schwaebisch-hall, stuttgart-vaihingen, telekom-crailsheim).
+            .replace(/[^A-Za-z0-9\-]/g, '')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '')
+            .slice(0, 24);
+    } catch(e) { _shop = ''; }
+
+    return _shop
+        ? `${ARCHIV_DATEI_PREFIX}${_shop}_${_typ}_${_datum}_${_kenn}.pdf`
+        : `${ARCHIV_DATEI_PREFIX}${_typ}_${_datum}_${_kenn}.pdf`;
 };
 
 const ARCHIV_BETREFF_FELDER = 4; // NIEMALS ändern
@@ -16304,13 +16339,24 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
         setTimeout(()=>URL.revokeObjectURL(url), 8000);
     };
 
-    // ══ v70: WINDOWS/DESKTOP → IMMER mailto (Betreff garantiert) ═════════════
-    // Grund: Unter Android übernimmt die Outlook-App das `title`-Feld von
-    // navigator.share() als Betreff. Windows kann das NICHT – dort gibt es kein
-    // Betreff-Feld beim Teilen, und das Outlook-Desktop-Programm ignoriert `title`.
-    // Deshalb geht Windows direkt auf mailto:, wo der Betreff in der URL steht
-    // und dadurch IMMER ankommt.
-    const _isTouchTablet = (() => {
+    // ══ v53: KEINE PLATTFORM-WEICHE MEHR ═══════════════════════════════════
+    // Vorgeschichte: v70 hatte Windows fest auf mailto: gestellt (kein Anhang),
+    // ein späterer Versuch rief navigator.share() direkt auf – auf Windows blieb
+    // der Freigeben-Dialog dann bei "Freigeben mit" grau hängen.
+    //
+    // Getestet und bestätigt: Der Weg über das Zwischenfenster (openShareSheet)
+    // funktioniert auf Windows, Android UND iOS – Outlook öffnet mit bereits
+    // angehängter PDF. Grund: Der Tipp auf "Jetzt teilen" liefert eine FRISCHE
+    // Nutzer-Geste; ohne die verweigern die Browser das Teilen von Dateien.
+    //
+    // WICHTIG: Der DIREKTE navigator.share()-Aufruf bleibt den Tablets
+    // vorbehalten. Auf Windows öffnet er zwar den Freigeben-Dialog, dieser
+    // lädt dort aber seine Ziel-Apps nicht (Liste bleibt grau) – und weil der
+    // Aufruf technisch "erfolgreich" ist, käme das rettende Zwischenfenster
+    // nie. Windows springt deshalb direkt zum Zwischenfenster.
+    // ══════════════════════════════════════════════════════════════════════
+
+    const _istTablet = (() => {
         try {
             const ua = navigator.userAgent || '';
             const isAndroid = /Android/i.test(ua);
@@ -16320,26 +16366,9 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
         } catch(e) { return false; }
     })();
 
-    if (!_isTouchTablet) {
-        // Desktop (Windows/Mac): PDF speichern + Outlook mit fertigem Betreff öffnen
-        try { saveBlob(blob); } catch(e) {}
-        const _bodyWin = encodeURIComponent(
-            'Bitte das soeben gespeicherte PDF anhängen und senden.\n\n' +
-            '(Betreff bitte NICHT ändern – wird automatisch einsortiert.)\n\n' +
-            'Datei: ' + dateiname
-        );
-        setTimeout(() => {
-            try { window.location.href = `mailto:${ARCHIV_EMAIL}?subject=${encodeURIComponent(betreff)}&body=${_bodyWin}`; } catch(e) {
-                try { window.open(`mailto:${ARCHIV_EMAIL}?subject=${encodeURIComponent(betreff)}&body=${_bodyWin}`, '_blank'); } catch(e2){}
-            }
-        }, 400);
-        try { triggerToast('PDF gespeichert → Outlook öffnet mit fertigem Betreff. Bitte PDF anhängen & senden.'); } catch(e){}
-        return;
-    }
-
     // ══ v60: TABLET – ERST DIREKT TEILEN, Fenster nur als Notnagel ═══════════
     // Auf Android/iOS übernimmt Mail/Outlook das `title`-Feld als Betreff.
-    try {
+    if (_istTablet) try {
         let file = null;
         try { file = new File([blob], dateiname, { type: 'application/pdf' }); } catch(e) { file = null; }
         const canShareFile = file && navigator.canShare && navigator.canShare({ files: [file] });
