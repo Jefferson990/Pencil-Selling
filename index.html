@@ -10782,7 +10782,7 @@ const handleOpenStats = () => { setShowPinLock(true); };
             };
 
             const [shareSheet, setShareSheet] = useState(null); // { file, title, subtitle, shareText, shareSubject, resolve }
-            const openShareSheet = ({ blob, filename, title, subtitle, shareText, shareSubject, archiveMode }) => new Promise((resolve) => {
+            const openShareSheet = ({ blob, filename, title, subtitle, shareText, shareSubject, archiveMode, hideOpenTab }) => new Promise((resolve) => {
                 let file = null;
                 try { file = new File([blob], filename, { type: 'application/pdf' }); } catch(e) { file = null; }
                 if (!file) { resolve(false); return; }
@@ -10793,6 +10793,7 @@ const handleOpenStats = () => { setShowPinLock(true); };
                     shareText: shareText || 'Ihr persönliches Angebot',
                     shareSubject: buildShareSubject(filename, shareSubject),
                     archiveMode: !!archiveMode,
+                    hideOpenTab: !!hideOpenTab, // v53: "In neuem Tab öffnen" beim Archivieren ausblenden
                     resolve
                 });
             });
@@ -16408,8 +16409,12 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
             title: '📨 Angebot ins Archiv senden',
             subtitle: 'Jetzt teilen → „Mail" oder „Outlook" wählen → an ' + ARCHIV_EMAIL + ' senden.\nBetreff bitte NICHT ändern.',
             shareText: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${betreff}`,
-            shareSubject: betreff,
-            archiveMode: true
+            hideOpenTab: true
+            // v53: KEIN archiveMode mehr.
+            // Der schaltete im Fenster zusätzlich einen Betreff-Kasten,
+            // "Betreff kopieren" und "Outlook mit fertigem Betreff öffnen" ein.
+            // Gewünscht ist nur das schlichte Teilen-Fenster – PDF hängt beim
+            // Teilen ohnehin automatisch an.
         });
         if (ok) {
             try { triggerToast('„Mail/Outlook" wählen → Adresse ' + ARCHIV_EMAIL + ' → senden. PDF ist bereits angehängt.'); } catch(e){}
@@ -17398,8 +17403,9 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                     📤 Jetzt teilen
                                 </button>
 
-                                {/* Alternativ: nur öffnen (drucken / manuell speichern) – im Archiv-Modus ausgeblendet */}
-                                {!shareSheet.archiveMode && (
+                                {/* Alternativ: nur öffnen (drucken / manuell speichern).
+                                    v53: Beim Archivieren ausgeblendet – dort soll NUR geteilt werden. */}
+                                {!shareSheet.hideOpenTab && (
                                 <button onClick={() => {
                                     const s = shareSheet;
                                     setShareSheet(null);
@@ -17437,12 +17443,11 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                     ✉️ Outlook mit fertigem Betreff öffnen
                                 </button>
                                 )}
-                                {shareSheet.archiveMode && (
+                                {/* v53: Abbrechen immer verfügbar (vorher nur im Archiv-Modus) */}
                                 <button onClick={() => { const s = shareSheet; setShareSheet(null); try { s.resolve && s.resolve(false); } catch(e){} }}
                                     style={{width:'100%',padding:'10px',borderRadius:'14px',border:'none',background:'transparent',color:'#94a3b8',fontWeight:700,fontSize:'13px',cursor:'pointer'}}>
                                     Abbrechen
                                 </button>
-                                )}
                             </div>
                         </div>
                     ), document.body)}
