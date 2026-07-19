@@ -16354,7 +16354,12 @@ const buildArchivDateiname = (typ, datum, kennung) => {
             .replace(/[^A-Za-z0-9\-]/g, '')
             .replace(/-+/g, '-')
             .replace(/^-|-$/g, '')
-            .slice(0, 24);
+            .slice(0, 24)
+            // v53e: Jeder Wortanfang GROSS – auch nach einem Bindestrich.
+            //   aalen              -> Aalen
+            //   schwaebisch-hall   -> Schwaebisch-Hall
+            //   telekom-crailsheim -> Telekom-Crailsheim
+            .replace(/(^|-)([a-z])/g, (m, trenner, buchstabe) => trenner + buchstabe.toUpperCase());
     } catch(e) { _shop = ''; }
 
     return _shop
