@@ -5326,69 +5326,118 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
             );
         };
 
-        const ReferralModal = ({ isOpen, onClose, onPrint, onShare, onFinish, onPdfPrint }) => {
-            const [pdfBusyReferral, setPdfBusyReferral] = React.useState(false);
+        const ReferralModal = ({ isOpen, onClose, onPrint, onShare, onFinish, onPdfPrint, onShareDirect, onNoHandout, step1Done, pdfBereit, istAbschluss }) => {
+            // v53: Umbau auf klare 2-Schritte-Führung.
+            // Schritt 1: Angebot an den Kunden übergeben (Direkt-Teilen; PDF wurde
+            //            beim Öffnen bereits vorbereitet). Nach Erledigung wird die
+            //            Karte ausgegraut, bleibt aber ANTIPPBAR – falls das
+            //            Teilen-Menü versehentlich geschlossen wurde.
+            // Schritt 2: Ins Archiv & neu starten – gesperrt, bis Schritt 1
+            //            erledigt ist. Verhindert Archivieren ohne Übergabe.
             if (!isOpen) return null;
 
-            const handlePrintAction = () => {
-                // Modal bleibt offen — nach dem Drucken kommt der User zurück
-                onPrint();
-            };
+            const step1Aktiv = !step1Done;
 
             return (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 animate-in zoom-in no-print" style={{}}>
                     <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
                         <div className="p-8 text-center">
-                            <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <Icon d={ICONS.Star} size={32} />
-                            </div>
-                            <h3 className="text-2xl font-black text-slate-900 mb-1">Freunde werben &amp; Prämie sichern</h3>
-                            <p className="text-slate-500 mb-6 text-sm">Empfehlen Sie uns weiter und erhalten Sie eine Gutschrift!</p>
+                            <h3 className="text-2xl font-black text-slate-900 mb-1">{istAbschluss ? 'Abschluss fertigstellen' : 'Angebot fertigstellen'}</h3>
+                            <p className="text-slate-500 mb-6 text-sm">Zwei Schritte – dann ist der nächste Kunde dran.</p>
 
                             <div className="space-y-4">
-                                {/* Bereich: Angebot Teilen */}
-                                <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                                    <div className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-2">Angebot Teilen</div>
-                                    {/* PDF drucken / Empfohlen – exakt derselbe Button wie im FinishTypeModal */}
+                                {/* ── SCHRITT 1: Übergabe ─────────────────────────────── */}
+                                <div style={{
+                                    padding:'18px', borderRadius:'18px', textAlign:'left',
+                                    border: step1Aktiv ? '2px solid #bfdbfe' : '2px solid #e2e8f0',
+                                    background: step1Aktiv ? '#eff6ff' : '#f8fafc',
+                                    opacity: step1Aktiv ? 1 : 0.72, transition:'all .2s'
+                                }}>
+                                    <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'12px'}}>
+                                        <div style={{
+                                            width:'30px',height:'30px',borderRadius:'999px',flexShrink:0,
+                                            display:'flex',alignItems:'center',justifyContent:'center',
+                                            fontWeight:900,fontSize:'15px',
+                                            background: step1Done ? '#22c55e' : '#2563eb', color:'#fff'
+                                        }}>{step1Done ? '✓' : '1'}</div>
+                                        <div style={{fontSize:'15px',fontWeight:900,color: step1Done ? '#64748b' : '#0f172a'}}>
+                                            Angebot an Kunden übergeben
+                                        </div>
+                                    </div>
+
                                     <button
-                                                disabled={pdfBusyReferral}
-                                                onClick={async () => {
-                                                    if (pdfBusyReferral) return;
-                                                    setPdfBusyReferral(true);
-                                                    try { await onPdfPrint(); } catch(e) {}
-                                                    setPdfBusyReferral(false);
-                                                }}
-                                                style={{display:'flex',alignItems:'center',gap:'16px',padding:'16px 20px',borderRadius:'16px',border:'2px solid #fde68a',background:pdfBusyReferral?'#fef9c3':'linear-gradient(135deg,#fffbeb,#fef3c7)',cursor:pdfBusyReferral?'wait':'pointer',textAlign:'left',transition:'all 0.15s',width:'100%',opacity:pdfBusyReferral?0.7:1,marginBottom:'10px'}}
-                                                onMouseEnter={e=>{if(!pdfBusyReferral){e.currentTarget.style.borderColor='#f59e0b';e.currentTarget.style.transform='translateY(-1px)';}}}
-                                                onMouseLeave={e=>{e.currentTarget.style.borderColor='#fde68a';e.currentTarget.style.transform='none';}}
-                                            >
-                                                <div style={{width:'48px',height:'48px',borderRadius:'14px',background:'linear-gradient(135deg,#f59e0b,#d97706)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:'22px'}}>{pdfBusyReferral ? '⏳' : '🖨️'}</div>
-                                                <div style={{flex:1}}>
-                                                    <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
-                                                        <div style={{fontSize:'16px',fontWeight:900,color:'#78350f'}}>{pdfBusyReferral ? 'PDF wird erstellt…' : 'PDF drucken / teilen mit'}</div>
-                                                        <span style={{fontSize:'9px',fontWeight:800,background:'#f59e0b',color:'#fff',padding:'2px 7px',borderRadius:'999px',textTransform:'uppercase',letterSpacing:'0.06em'}}>Empfohlen</span>
-                                                    </div>
-                                                    <div style={{fontSize:'12px',color:'#92400e',marginTop:'2px'}}>Exakt wie auf dem Bildschirm – kein Verziehen</div>
-                                                </div>
-                                                <div style={{marginLeft:'auto',fontSize:'18px',color:'#f59e0b'}}>→</div>
+                                        disabled={step1Aktiv && !pdfBereit}
+                                        onClick={onShareDirect}
+                                        style={{
+                                            width:'100%', padding:'15px', borderRadius:'14px', border:'none',
+                                            background: step1Done
+                                                ? '#e2e8f0'
+                                                : (pdfBereit ? 'linear-gradient(135deg,#2563eb,#1d4ed8)' : '#93c5fd'),
+                                            color: step1Done ? '#475569' : '#fff',
+                                            fontWeight:900, fontSize:'16px',
+                                            cursor: (step1Aktiv && !pdfBereit) ? 'wait' : 'pointer',
+                                            boxShadow: step1Done ? 'none' : '0 6px 16px rgba(37,99,235,0.3)',
+                                            transition:'all .2s'
+                                        }}>
+                                        {step1Done
+                                            ? '↩︎ Erneut senden / drucken'
+                                            : (pdfBereit ? '📤 Senden / drucken' : '⏳ PDF wird vorbereitet…')}
                                     </button>
-                                    <button onClick={onShare} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold shadow-md flex items-center justify-center gap-2 hover:bg-blue-700 transition-all" style={{display:'none'}} aria-hidden="true" tabIndex={-1}>
-                                        <Icon d={ICONS.Share} size={18} /> Digital senden
-                                    </button>
+                                    <div style={{fontSize:'11px',color:'#64748b',marginTop:'6px',textAlign:'center'}}>
+                                        {step1Done
+                                            ? 'Erledigt – bei Bedarf antippen und nochmal senden.'
+                                            : 'Öffnet das Teilen-Menü: Mail, WhatsApp, Drucken …'}
+                                    </div>
+
+                                    {!step1Done && (
+                                        <button onClick={onNoHandout}
+                                            style={{width:'100%',marginTop:'10px',padding:'9px',borderRadius:'12px',border:'1.5px dashed #cbd5e1',background:'transparent',color:'#64748b',fontWeight:700,fontSize:'13px',cursor:'pointer'}}>
+                                            Kunde möchte nichts mitnehmen
+                                        </button>
+                                    )}
                                 </div>
 
-                                {/* Bereich: Drucken */}
-                                <div className="flex flex-col items-center gap-3 pt-2" style={{display:'none'}} aria-hidden="true">
-                                    <button onClick={handlePrintAction} className="px-8 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm hover:bg-black transition-all" tabIndex={-1}>
-                                        Weiter zum Druck
+                                {/* ── SCHRITT 2: Archiv & Neustart ─────────────────────── */}
+                                <div style={{
+                                    padding:'18px', borderRadius:'18px', textAlign:'left',
+                                    border: step1Done ? '2px solid #bbf7d0' : '2px solid #e2e8f0',
+                                    background: step1Done ? '#f0fdf4' : '#f8fafc',
+                                    opacity: step1Done ? 1 : 0.55, transition:'all .2s'
+                                }}>
+                                    <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'12px'}}>
+                                        <div style={{
+                                            width:'30px',height:'30px',borderRadius:'999px',flexShrink:0,
+                                            display:'flex',alignItems:'center',justifyContent:'center',
+                                            fontWeight:900,fontSize:'15px',
+                                            background: step1Done ? '#16a34a' : '#cbd5e1', color:'#fff'
+                                        }}>2</div>
+                                        <div style={{fontSize:'15px',fontWeight:900,color: step1Done ? '#0f172a' : '#94a3b8'}}>
+                                            Ins Archiv senden &amp; neu starten
+                                        </div>
+                                    </div>
+                                    <button
+                                        disabled={!step1Done}
+                                        onClick={onFinish}
+                                        style={{
+                                            width:'100%', padding:'15px', borderRadius:'14px', border:'none',
+                                            background: step1Done ? 'linear-gradient(135deg,#16a34a,#15803d)' : '#e2e8f0',
+                                            color: step1Done ? '#fff' : '#94a3b8',
+                                            fontWeight:900, fontSize:'16px',
+                                            cursor: step1Done ? 'pointer' : 'not-allowed',
+                                            boxShadow: step1Done ? '0 6px 16px rgba(22,163,74,0.3)' : 'none',
+                                            transition:'all .2s'
+                                        }}>
+                                        ✅ Ins Archiv &amp; neuer Kunde
                                     </button>
+                                    {!step1Done && (
+                                        <div style={{fontSize:'11px',color:'#94a3b8',marginTop:'6px',textAlign:'center'}}>
+                                            Wird frei, sobald Schritt 1 erledigt ist.
+                                        </div>
+                                    )}
                                 </div>
 
-                                {/* Abschluss-Linie */}
-                                <div className="border-t border-slate-100 pt-4 flex flex-col items-center gap-2">
-                                    <button onClick={onFinish} className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-md flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all text-sm">
-                                        ✅ Fertig, ins Archiv senden &amp; neu starten
-                                    </button>
+                                <div className="pt-1 flex flex-col items-center gap-2">
+                                    <div style={{fontSize:'11px',color:'#b45309'}}>💡 Tipp: Kunden auf „Freunde werben &amp; Prämie sichern" ansprechen.</div>
                                     <button onClick={() => onClose('cancel')} className="text-slate-400 text-xs font-bold hover:text-red-500">
                                         Vorgang ohne Reset beenden
                                     </button>
@@ -16876,8 +16925,130 @@ const resumeParkedArchive = async (entry, rufValue) => {
                 } catch(e) { /* ignore */ }
             };
 
+            // ══════════════════════════════════════════════════════════════════
+            // v53: REFERRAL-DIALOG – SCHRITT 1/2 MIT DIREKT-TEILEN
+            // ──────────────────────────────────────────────────────────────────
+            // Problem vorher: Klick → PDF-Erzeugung (Sekunden) → die Klick-Geste
+            // ist "verbraucht" → navigator.share() darf nicht mehr öffnen →
+            // deshalb existierte das Zwischenfenster ("Jetzt teilen").
+            //
+            // Lösung: Das PDF wird bereits gerendert, WÄHREND der Dialog aufgeht.
+            // Beim Tippen auf Schritt 1 liegt der Blob fertig da und die Geste
+            // ist frisch → das native Teilen-Menü öffnet DIREKT.
+            // Das alte "PDF ist fertig!"-Fenster bleibt nur als Notnagel, falls
+            // ein Gerät das Direkt-Teilen verweigert (z.B. Desktop-Firefox).
+            //
+            // Nebenwirkungen (Statistik, Cloud-Sicherung, Tracking) laufen
+            // bewusst NICHT beim Vorab-Rendern, sondern erst beim echten Klick –
+            // sonst zählt jedes Öffnen des Dialogs als Angebot.
+            // ══════════════════════════════════════════════════════════════════
+            const referralPdfRef = useRef(null);
+            const [referralPdfBereit, setReferralPdfBereit] = useState(false);
+            const [referralStep1Done, setReferralStep1Done] = useState(false);
+
+            useEffect(() => {
+                // v53b: Vorbereiten für BEIDE Fenster – auch das
+                // "Wie möchten Sie fortfahren?"-Fenster (Angebot-Pfad) braucht
+                // den Vorab-Blob, sonst bleibt dort der alte Umweg über das
+                // Zwischenfenster.
+                const anyOpen = showReferralModal || showFinishTypeModal;
+                if (!anyOpen) {
+                    referralPdfRef.current = null;
+                    setReferralPdfBereit(false);
+                    setReferralStep1Done(false);
+                    return;
+                }
+                // Läuft schon oder ist fertig → nichts doppelt starten
+                if (referralPdfRef.current && (referralPdfRef.current.blob || referralPdfRef.current.promise)) return;
+                let cancelled = false;
+                const p = (async () => {
+                    // Toast-los rendern – der Verkäufer soll vom Vorbereiten nichts merken
+                    const blob = await createPrintLookPdfBlob(() => {}, ensurePrintHeaders);
+                    if (!cancelled && referralPdfRef.current && referralPdfRef.current.promise === p) {
+                        referralPdfRef.current.blob = blob;
+                        try { window.__lastPdfBlob = blob; } catch(e) {}
+                        setReferralPdfBereit(true);
+                    }
+                    return blob; // WICHTIG: auch bei cancelled zurückgeben – ein
+                                 // Handler kann das Promise lokal gesichert haben.
+                })();
+                referralPdfRef.current = { promise: p };
+                p.catch(() => { if (!cancelled) setReferralPdfBereit(false); });
+                return () => { cancelled = true; };
+            }, [showReferralModal, showFinishTypeModal]);
+
+            const handleReferralShareDirect = async () => {
+                if (!runOnlyWithOfferValidity(() => { handleReferralShareDirect(); })) return;
+                // Identität wie bisher: Abschluss → Rufnummer (überspringt sich,
+                // wenn vorhanden) | Angebot → Kundenname (kommt IMMER, v58b).
+                const __idRes = await ensureIdentityBeforePdf();
+                if (!__idRes || !__idRes.proceed) return;
+
+                // Blob aus dem Vorab-Cache (fertig oder noch am Rendern);
+                // Notfall: jetzt erzeugen
+                const __vorab = referralPdfRef.current;
+                let blob = null;
+                try { blob = __vorab ? (__vorab.blob || (__vorab.promise ? await __vorab.promise : null)) : null; } catch(e) { blob = null; }
+                if (!blob) {
+                    triggerToast('PDF wird erstellt… einen Moment.');
+                    try {
+                        blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders);
+                        referralPdfRef.current = { blob };
+                    } catch(e) {
+                        triggerToast('PDF-Fehler: ' + (e && e.message ? e.message : 'Unbekannt'));
+                        return;
+                    }
+                }
+
+                const pdfFile = new File([blob], buildPdfFileName(), { type: 'application/pdf' });
+                try { window.__lastPdfBlob = blob; window.__lastPdfFile = pdfFile; } catch(e) {}
+
+                const mb = blob.size / (1024 * 1024);
+                if (mb > 20) triggerToast(`⚠️ PDF ist ${mb.toFixed(1)} MB – evtl. zu groß für E-Mail.`);
+
+                // Nebenwirkungen – NUR bei der Erst-Übergabe, sonst zählt
+                // „Erneut senden" das Angebot doppelt.
+                const __erstUebergabe = !referralStep1Done;
+                if (__erstUebergabe) {
+                    if (!customerSignature) { try { cloudAutoSaveCurrentOffer(); } catch(e){} }
+                    logQuoteToStatistics();
+                }
+
+                // DIREKT teilen – die Geste (Klick bzw. „Weiter" der Namensabfrage) ist frisch
+                try {
+                    if (navigator.canShare && navigator.canShare({ files: [pdfFile] }) && typeof navigator.share === 'function') {
+                        await navigator.share({ title: buildShareSubject(pdfFile.name), text: 'Ihr persönliches Angebot', files: [pdfFile] });
+                        if (__erstUebergabe) trackOutputAction('digital');
+                        setReferralStep1Done(true);
+                        triggerToast('✅ PDF geteilt.');
+                        return;
+                    }
+                } catch(e) {
+                    // Verkäufer hat das Menü selbst geschlossen → Schritt 1 bleibt offen,
+                    // KEIN weiteres Fenster (genau das nervte).
+                    if (e && (e.name === 'AbortError' || /abort/i.test(e.message || ''))) return;
+                }
+                // Notnagel: Gerät kann kein Direkt-Teilen → kleines Fenster mit
+                // frischer Geste (trackt beim Klick selbst).
+                setPdfShareReady(pdfFile);
+            };
+
+            const handleReferralNoHandout = () => {
+                // Kunde möchte nichts mitnehmen → Schritt 1 gilt als erledigt,
+                // damit Schritt 2 (Archiv) frei wird. Keine Statistik – es wurde
+                // nichts ausgegeben.
+                setReferralStep1Done(true);
+                try { triggerToast('Ohne Ausdruck – weiter zu Schritt 2.'); } catch(e) {}
+            };
+
             const handleRecommendedPdfPrint = async () => {
                 if (!runOnlyWithOfferValidity(() => { handleRecommendedPdfPrint(); })) return;
+
+                // v53b: Vorab-Cache SOFORT lokal sichern – das Schließen des
+                // Fensters (nächste Zeile) löst den Cache-Reset im useEffect aus.
+                // Die lokale Variable überlebt das; der Blob bzw. das laufende
+                // Render-Promise bleiben so für diesen Durchlauf erhalten.
+                const __vorab = referralPdfRef.current;
 
                 try { setShowFinishTypeModal(false); } catch(e) {}
 
@@ -16888,11 +17059,17 @@ const resumeParkedArchive = async (entry, rufValue) => {
                 if (!__idRes || !__idRes.proceed) return;
 
                 const __pdfName2 = buildPdfFileName();
-                triggerToast('PDF wird erstellt… einen Moment.');
                 // ☁️ Angebot ohne Unterschrift → automatisch in Cloud sichern (für "Kunde kommt zurück")
                 if (!customerSignature) { try { cloudAutoSaveCurrentOffer(); } catch(e){} }
                 try {
-                    const blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders);
+                    // v53b: Blob aus dem Vorab-Cache (fertig oder noch am Rendern);
+                    // nur im Notfall jetzt erst erzeugen.
+                    let blob = null;
+                    try { blob = __vorab ? (__vorab.blob || (__vorab.promise ? await __vorab.promise : null)) : null; } catch(e) { blob = null; }
+                    if (!blob) {
+                        triggerToast('PDF wird erstellt… einen Moment.');
+                        blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders);
+                    }
                     const pdfFileName = __pdfName2;
                     const pdfFile = new File([blob], pdfFileName, { type: 'application/pdf' });
                     window.__lastPdfBlob = blob; window.__lastPdfFile = pdfFile;
@@ -16906,10 +17083,31 @@ const resumeParkedArchive = async (entry, rufValue) => {
                     // ── Statistik sofort loggen (zählt unabhängig vom Teilen-Weg als "Angebot") ──
                     logQuoteToStatistics();
 
-                    // v57b: IMMER den "Jetzt teilen"-Dialog zeigen. Direkt-Teilen scheitert
-                    // auf iPad/Android nach langer PDF-Erzeugung (Geste abgelaufen). Der Tap
-                    // im Dialog ist eine frische Geste → natives Menü öffnet garantiert.
-                    trackOutputAction('digital');
+                    // v53b: DIREKT teilen – der Blob lag schon bereit, die Geste
+                    // (Klick bzw. „Weiter" der Namensabfrage) ist noch frisch.
+                    // Das Zwischenfenster kommt nur noch als Notnagel.
+                    try {
+                        if (navigator.canShare && navigator.canShare({ files: [pdfFile] }) && typeof navigator.share === 'function') {
+                            await navigator.share({ title: buildShareSubject(pdfFile.name), text: 'Ihr persönliches Angebot', files: [pdfFile] });
+                            trackOutputAction('digital');
+                            setReferralStep1Done(true); // ReferralModal startet mit erledigtem Schritt 1
+                            triggerToast('✅ PDF geteilt.');
+                            setTimeout(() => setShowReferralModal(true), 300);
+                            return;
+                        }
+                    } catch(shareErr) {
+                        if (shareErr && (shareErr.name === 'AbortError' || /abort/i.test(shareErr.message || ''))) {
+                            // Menü selbst geschlossen → weiter zum 2-Schritte-Fenster,
+                            // Schritt 1 bleibt offen (dort: „Erneut senden").
+                            setTimeout(() => setShowReferralModal(true), 300);
+                            return;
+                        }
+                        // sonst: unten zum Notnagel durchfallen
+                    }
+                    // Notnagel (Gerät ohne Web-Share, z.B. Desktop-Firefox):
+                    // Fenster mit frischer Geste. Es trackt beim Klick selbst –
+                    // deshalb hier bewusst KEIN trackOutputAction (das alte
+                    // Doppel-Zählen ist damit behoben).
                     setPdfShareReady(pdfFile);
                 } catch(e) {
                     triggerToast('PDF-Fehler: ' + (e && e.message ? e.message : 'Unbekannt'));
@@ -16951,7 +17149,7 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                     if (navigator.canShare && navigator.canShare({ files: [f] })) {
                                         // WICHTIG: share() synchron im Tap aufrufen → iOS zeigt den Teilen-Dialog sicher
                                         navigator.share({ title: buildShareSubject(f.name), text: 'Ihr persönliches Angebot', files: [f] })
-                                            .then(() => { triggerToast('✅ PDF geteilt.'); after(); })
+                                            .then(() => { triggerToast('✅ PDF geteilt.'); try { setReferralStep1Done(true); } catch(e){} after(); })
                                             .catch(() => {
                                                 try { const url = URL.createObjectURL(f); window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 120000); } catch(e) {}
                                                 after();
@@ -16993,7 +17191,13 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                 setTimeout(() => { try { sendToArchive(_typ, { askForNumber: _ask }); } catch(e) {} }, 250);
                             }
                         }
-                    }} onPrint={() => { try { ensurePrintHeaders(); } catch(e) {} handlePrint(); }} onShare={handlePDFShare} onPdfPrint={handleRecommendedPdfPrint} onFinish={() => {
+                    }} onPrint={() => { try { ensurePrintHeaders(); } catch(e) {} handlePrint(); }} onShare={handlePDFShare} onPdfPrint={handleRecommendedPdfPrint}
+                       onShareDirect={handleReferralShareDirect}
+                       onNoHandout={handleReferralNoHandout}
+                       step1Done={referralStep1Done}
+                       pdfBereit={referralPdfBereit}
+                       istAbschluss={!!customerSignature}
+                       onFinish={() => {
                         setShowReferralModal(false);
                         const doReload = () => {
                             try { handleClearAll(); } catch(e) {}
