@@ -12055,15 +12055,15 @@ const isOfferAreaNonEmpty = React.useCallback((k) => {
                             if (!window.html2pdf) { triggerToast('PDF-Generator fehlt.'); return; }
                             triggerToast('PDF wird erstellt… einen Moment.');
                             const blob = await createPrintLookPdfBlob(triggerToast, ensurePrintHeaders);
-                            const pdfFileName = (typeof buildPdfFileName === 'function')
-                                ? buildPdfFileName()
-                                : `Angebot_${new Date().toISOString().slice(0,10)}.pdf`;
+                            // v53c: Kundenversand → neutraler Dateiname + Anschreiben,
+                            // ohne Shopname (steht bereits in der Mail-Signatur).
                             await openShareSheet({
                                 blob,
-                                filename: pdfFileName,
+                                filename: buildKundenDateiname(),
                                 title: 'PDF ist fertig!',
                                 subtitle: 'Jetzt mit dem Kunden teilen oder öffnen.',
-                                shareText: 'Ihr persönliches Angebot vom ' + CURRENT_SHOP.name
+                                shareText: buildKundenNachricht(),
+                                shareSubject: KUNDEN_SHARE_BETREFF
                             });
                         } catch(e) { triggerToast('PDF-Fehler: ' + (e && e.message ? e.message : 'Unbekannt')); }
                     })();
@@ -12200,6 +12200,39 @@ const ensureIdentityBeforePdf = async () => {
 };
 
 // Einheitlicher PDF-Dateiname: Abschluss → Rufnummer, Angebot → Kundenname. Immer mit Datum.
+// ══════════════════════════════════════════════════════════════════════════
+// v53c: KUNDEN-VERSAND vs. ARCHIV – ZWEI GETRENNTE BENENNUNGEN
+// ──────────────────────────────────────────────────────────────────────────
+// Der Kunde bekommt das PDF per WhatsApp/Mail. Dort haben interne Kennungen
+// (Rufnummer, Shop-ID, "PENCIL|abschluss|…") nichts zu suchen – das wirkt
+// unprofessionell und gibt interne Struktur preis.
+//
+//   Kunde  →  Ihr persoenliches Angebot.pdf   + freundlicher Anschreibtext
+//   Archiv →  PENCIL_aalen_Abschluss_2026-07-19_0176….pdf  (unveraendert)
+//
+// Ohne Shopname im Text: Diego hat eine Mail-Signatur, sonst steht es doppelt.
+// ══════════════════════════════════════════════════════════════════════════
+const buildKundenDateiname = () => {
+    // Bewusst OHNE Datum/Nummer/Name: Der Kunde sieht nur einen sauberen Titel.
+    // Umlaute vermieden – manche Mail-Clients zerlegen sie im Dateinamen.
+    return 'Ihr persoenliches Angebot.pdf';
+};
+
+const KUNDEN_SHARE_BETREFF = 'Ihr persönliches Angebot';
+
+const buildKundenNachricht = () => {
+    return [
+        'Guten Tag,',
+        '',
+        'vielen Dank für Ihr Vertrauen und das freundliche Gespräch.',
+        'Anbei erhalten Sie wie besprochen Ihr persönliches Angebot.',
+        '',
+        'Bei Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.',
+        '',
+        'Mit freundlichen Grüßen'
+    ].join('\n');
+};
+
 const buildPdfFileName = () => {
     const _datum = new Date().toISOString().slice(0,10);
     if (customerSignature) {
@@ -16200,10 +16233,13 @@ const handlePDFShare = async () => {
         // (WhatsApp / Mail / Outlook) öffnet auf iPad, Android UND Windows sicher.
         await openShareSheet({
             blob,
-            filename,
+            // v53c: Kundenversand → neutraler Dateiname + Anschreiben,
+            // ohne Shopname (steht bereits in der Mail-Signatur).
+            filename: buildKundenDateiname(),
             title: 'PDF ist fertig!',
             subtitle: 'Jetzt mit dem Kunden teilen oder öffnen.',
-            shareText: 'Ihr persönliches Angebot vom ' + CURRENT_SHOP.name
+            shareText: buildKundenNachricht(),
+            shareSubject: KUNDEN_SHARE_BETREFF
         });
 } catch (err) {
         hideOverlay();
@@ -16979,10 +17015,16 @@ const resumeParkedArchive = async (entry, rufValue) => {
 
             const handleReferralShareDirect = async () => {
                 if (!runOnlyWithOfferValidity(() => { handleReferralShareDirect(); })) return;
-                // Identität wie bisher: Abschluss → Rufnummer (überspringt sich,
-                // wenn vorhanden) | Angebot → Kundenname (kommt IMMER, v58b).
-                const __idRes = await ensureIdentityBeforePdf();
-                if (!__idRes || !__idRes.proceed) return;
+                // v53d: Identität nur bei der ERSTEN Übergabe abfragen.
+                // Beim "Erneut senden" (Schritt 1 nochmal) ist der Name bzw. die
+                // Nummer bereits bestätigt und die PDF unverändert – erneutes
+                // Fragen wirkt wie ein Fehler. Beim Abschluss war das schon so
+                // (Rufnummer-Prüfung überspringt sich), beim Angebot kam der
+                // Kundenname-Dialog wegen v58b jedes Mal erneut.
+                if (!referralStep1Done) {
+                    const __idRes = await ensureIdentityBeforePdf();
+                    if (!__idRes || !__idRes.proceed) return;
+                }
 
                 // Blob aus dem Vorab-Cache (fertig oder noch am Rendern);
                 // Notfall: jetzt erzeugen
@@ -17000,7 +17042,11 @@ const resumeParkedArchive = async (entry, rufValue) => {
                     }
                 }
 
+                // v53c: ZWEI Dateien aus demselben Blob.
+                //  - pdfFile      → intern (Archiv, Statistik, __lastPdfFile)
+                //  - kundenFile   → geht an den Kunden, neutraler Name
                 const pdfFile = new File([blob], buildPdfFileName(), { type: 'application/pdf' });
+                const kundenFile = new File([blob], buildKundenDateiname(), { type: 'application/pdf' });
                 try { window.__lastPdfBlob = blob; window.__lastPdfFile = pdfFile; } catch(e) {}
 
                 const mb = blob.size / (1024 * 1024);
@@ -17016,8 +17062,8 @@ const resumeParkedArchive = async (entry, rufValue) => {
 
                 // DIREKT teilen – die Geste (Klick bzw. „Weiter" der Namensabfrage) ist frisch
                 try {
-                    if (navigator.canShare && navigator.canShare({ files: [pdfFile] }) && typeof navigator.share === 'function') {
-                        await navigator.share({ title: buildShareSubject(pdfFile.name), text: 'Ihr persönliches Angebot', files: [pdfFile] });
+                    if (navigator.canShare && navigator.canShare({ files: [kundenFile] }) && typeof navigator.share === 'function') {
+                        await navigator.share({ title: KUNDEN_SHARE_BETREFF, text: buildKundenNachricht(), files: [kundenFile] });
                         if (__erstUebergabe) trackOutputAction('digital');
                         setReferralStep1Done(true);
                         triggerToast('✅ PDF geteilt.');
@@ -17029,8 +17075,9 @@ const resumeParkedArchive = async (entry, rufValue) => {
                     if (e && (e.name === 'AbortError' || /abort/i.test(e.message || ''))) return;
                 }
                 // Notnagel: Gerät kann kein Direkt-Teilen → kleines Fenster mit
-                // frischer Geste (trackt beim Klick selbst).
-                setPdfShareReady(pdfFile);
+                // frischer Geste (trackt beim Klick selbst). Auch dort die
+                // Kundenfassung, es geht an den Kunden.
+                setPdfShareReady(kundenFile);
             };
 
             const handleReferralNoHandout = () => {
@@ -17038,7 +17085,19 @@ const resumeParkedArchive = async (entry, rufValue) => {
                 // damit Schritt 2 (Archiv) frei wird. Keine Statistik – es wurde
                 // nichts ausgegeben.
                 setReferralStep1Done(true);
-                try { triggerToast('Ohne Ausdruck – weiter zu Schritt 2.'); } catch(e) {}
+                // v53d: Ohne Versand wurde nie nach Name/Nummer gefragt. Das
+                // Archiv braucht sie aber für den Dateinamen und fragt dann nach.
+                // Vorher kam das ohne Vorwarnung und wirkte wie eine Wiederholung.
+                try {
+                    const braucht = customerSignature
+                        ? !(sharedMsisdnRef.current || String(textData?.Rufnummer || '').replace(/[^0-9+]/g,'').trim())
+                        : !String(sharedKundeRef.current || '').trim();
+                    triggerToast(braucht
+                        ? (customerSignature
+                            ? 'Ohne Ausdruck – beim Archivieren wird noch die Rufnummer abgefragt.'
+                            : 'Ohne Ausdruck – beim Archivieren wird noch der Kundenname abgefragt.')
+                        : 'Ohne Ausdruck – weiter zu Schritt 2.');
+                } catch(e) {}
             };
 
             const handleRecommendedPdfPrint = async () => {
@@ -17072,6 +17131,8 @@ const resumeParkedArchive = async (entry, rufValue) => {
                     }
                     const pdfFileName = __pdfName2;
                     const pdfFile = new File([blob], pdfFileName, { type: 'application/pdf' });
+                    // v53c: Kundenfassung – neutraler Dateiname fuer WhatsApp/Mail
+                    const kundenFile = new File([blob], buildKundenDateiname(), { type: 'application/pdf' });
                     window.__lastPdfBlob = blob; window.__lastPdfFile = pdfFile;
 
                     // v47.9: PDF-Größe prüfen – Outlook/WhatsApp lehnen >20-25 MB Anhänge ab.
@@ -17087,8 +17148,8 @@ const resumeParkedArchive = async (entry, rufValue) => {
                     // (Klick bzw. „Weiter" der Namensabfrage) ist noch frisch.
                     // Das Zwischenfenster kommt nur noch als Notnagel.
                     try {
-                        if (navigator.canShare && navigator.canShare({ files: [pdfFile] }) && typeof navigator.share === 'function') {
-                            await navigator.share({ title: buildShareSubject(pdfFile.name), text: 'Ihr persönliches Angebot', files: [pdfFile] });
+                        if (navigator.canShare && navigator.canShare({ files: [kundenFile] }) && typeof navigator.share === 'function') {
+                            await navigator.share({ title: KUNDEN_SHARE_BETREFF, text: buildKundenNachricht(), files: [kundenFile] });
                             trackOutputAction('digital');
                             setReferralStep1Done(true); // ReferralModal startet mit erledigtem Schritt 1
                             triggerToast('✅ PDF geteilt.');
@@ -17107,8 +17168,8 @@ const resumeParkedArchive = async (entry, rufValue) => {
                     // Notnagel (Gerät ohne Web-Share, z.B. Desktop-Firefox):
                     // Fenster mit frischer Geste. Es trackt beim Klick selbst –
                     // deshalb hier bewusst KEIN trackOutputAction (das alte
-                    // Doppel-Zählen ist damit behoben).
-                    setPdfShareReady(pdfFile);
+                    // Doppel-Zählen ist damit behoben). Kundenfassung.
+                    setPdfShareReady(kundenFile);
                 } catch(e) {
                     triggerToast('PDF-Fehler: ' + (e && e.message ? e.message : 'Unbekannt'));
                 }
@@ -17148,7 +17209,7 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                     const after = () => setTimeout(() => setShowReferralModal(true), 300);
                                     if (navigator.canShare && navigator.canShare({ files: [f] })) {
                                         // WICHTIG: share() synchron im Tap aufrufen → iOS zeigt den Teilen-Dialog sicher
-                                        navigator.share({ title: buildShareSubject(f.name), text: 'Ihr persönliches Angebot', files: [f] })
+                                        navigator.share({ title: KUNDEN_SHARE_BETREFF, text: buildKundenNachricht(), files: [f] })
                                             .then(() => { triggerToast('✅ PDF geteilt.'); try { setReferralStep1Done(true); } catch(e){} after(); })
                                             .catch(() => {
                                                 try { const url = URL.createObjectURL(f); window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 120000); } catch(e) {}
