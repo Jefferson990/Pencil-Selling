@@ -5326,7 +5326,7 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
             );
         };
 
-        const ReferralModal = ({ isOpen, onClose, onPrint, onShare, onFinish, onPdfPrint, onShareDirect, onNoHandout, step1Done, pdfBereit, istAbschluss }) => {
+        const ReferralModal = ({ isOpen, onClose, onPrint, onShare, onFinish, onPdfPrint, onShareDirect, onNoHandout, step1Done, pdfBereit, istAbschluss, archivLaeuft }) => {
             // v53: Umbau auf klare 2-Schritte-Führung.
             // Schritt 1: Angebot an den Kunden übergeben (Direkt-Teilen; PDF wurde
             //            beim Öffnen bereits vorbereitet). Nach Erledigung wird die
@@ -5335,6 +5335,32 @@ for (const [key, strokes] of Object.entries(drawnStrokes)) {
             // Schritt 2: Ins Archiv & neu starten – gesperrt, bis Schritt 1
             //            erledigt ist. Verhindert Archivieren ohne Übergabe.
             if (!isOpen) return null;
+
+            // v53h: Waehrend des Archivierens NUR eine Statusanzeige – keine
+            // Buttons, kein Abbrechen. So kann der Verkaeufer nicht mehr in der
+            // App herumtippen, waehrend im Hintergrund der Neustart vorbereitet
+            // wird (genau das fuehlte sich vorher wie ein Absturz an).
+            if (archivLaeuft) {
+                return (
+                    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 no-print">
+                        <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center border border-slate-200">
+                            <div style={{
+                                width:'46px',height:'46px',margin:'0 auto 16px',
+                                border:'4px solid #e2e8f0',borderTopColor:'#16a34a',
+                                borderRadius:'50%',animation:'psSpin 0.9s linear infinite'
+                            }} />
+                            <style>{`@keyframes psSpin{to{transform:rotate(360deg)}}`}</style>
+                            <div style={{fontSize:'17px',fontWeight:900,color:'#0f172a',marginBottom:'6px'}}>
+                                Wird archiviert…
+                            </div>
+                            <div style={{fontSize:'13px',color:'#64748b',lineHeight:1.5}}>
+                                Bitte im Teilen-Menü an das Archiv senden.<br/>
+                                Danach startet die App automatisch für den nächsten Kunden neu.
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
 
             const step1Aktiv = !step1Done;
 
@@ -10746,6 +10772,15 @@ const handleOpenStats = () => { setShowPinLock(true); };
             const [showValidityModal, setShowValidityModal] = useState(false);
             const pendingPrintRef = useRef(null);
             const archiveSentRef = useRef(false); // verhindert doppeltes Auto-Archivieren pro Vorgang
+            // v53f: MUSS hier oben stehen. handleFinishTypeSelection und
+            // handleClearAll leeren diesen Cache und sind weiter oben in der
+            // Datei definiert – bei einer Deklaration weiter unten wuerde
+            // "Cannot access before initialization" fliegen, sobald der
+            // Verkaeufer auf Fertigstellen tippt.
+            const referralPdfRef = useRef(null);            // vorab gerendertes PDF
+            const [referralPdfBereit, setReferralPdfBereit] = useState(false);
+            const [referralStep1Done, setReferralStep1Done] = useState(false);
+            const [archivLaeuft, setArchivLaeuft] = useState(false); // v53h: sperrt das Fenster bis zum Neustart
             const sharedMsisdnRef = useRef(''); // einmal eingegebene Rufnummer für Druck + Archiv
             const [rufModalOpen, setRufModalOpen] = useState(false);
             const [rufModalAllowPark, setRufModalAllowPark] = useState(true);
@@ -10831,7 +10866,7 @@ const handleOpenStats = () => { setShowPinLock(true); };
             };
 
             const [shareSheet, setShareSheet] = useState(null); // { file, title, subtitle, shareText, shareSubject, resolve }
-            const openShareSheet = ({ blob, filename, title, subtitle, shareText, shareSubject, archiveMode, hideOpenTab }) => new Promise((resolve) => {
+            const openShareSheet = ({ blob, filename, title, subtitle, shareText, shareSubject, archiveMode, hideOpenTab, istArchiv }) => new Promise((resolve) => {
                 let file = null;
                 try { file = new File([blob], filename, { type: 'application/pdf' }); } catch(e) { file = null; }
                 if (!file) { resolve(false); return; }
@@ -10843,6 +10878,7 @@ const handleOpenStats = () => { setShowPinLock(true); };
                     shareSubject: buildShareSubject(filename, shareSubject),
                     archiveMode: !!archiveMode,
                     hideOpenTab: !!hideOpenTab, // v53: "In neuem Tab öffnen" beim Archivieren ausblenden
+                    istArchiv: !!istArchiv,     // v53g: Betreff auch auf Windows mitschicken
                     resolve
                 });
             });
@@ -12212,6 +12248,48 @@ const ensureIdentityBeforePdf = async () => {
 //
 // Ohne Shopname im Text: Diego hat eine Mail-Signatur, sonst steht es doppelt.
 // ══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
+// v53g: TEILEN-NUTZLAST JE PLATTFORM
+// ──────────────────────────────────────────────────────────────────────────
+// Beobachtung auf Windows: Der Freigeben-Dialog zeigt die PDF korrekt an,
+// laedt aber "Freigeben mit" nicht – die App-Kacheln bleiben grau.
+// Ursache ist die Kombination aus Datei UND Text/Titel in einem Aufruf:
+// Der Windows-Share-Handler sucht dann Ziele, die BEIDES annehmen, findet
+// keine und zeigt eine leere Liste. Nur-Datei funktioniert dagegen.
+//
+// Auf Android/iOS ist der Text dagegen wertvoll (Mail/Outlook uebernehmen
+// `title` als Betreff, WhatsApp den `text` als Nachricht) – dort bleibt er.
+//
+// Zusaetzlich: canShare() wird jetzt mit GENAU derselben Nutzlast geprueft,
+// die anschliessend geteilt wird. Vorher wurde nur { files: [...] } geprueft,
+// der Aufruf enthielt aber zusaetzlich title/text – die Pruefung sagte also
+// etwas anderes aus als der echte Aufruf.
+// ══════════════════════════════════════════════════════════════════════════
+const istWindowsPlattform = () => {
+    try {
+        const ua = navigator.userAgent || '';
+        if (/Android|iPad|iPhone|iPod/i.test(ua)) return false;
+        if (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1) return false; // iPadOS
+        return /Windows/i.test(ua);
+    } catch(e) { return false; }
+};
+
+// istArchiv=true  -> Betreff MUSS mit (Power Automate sortiert danach)
+// istArchiv=false -> Kundenversand, auf Windows nur die Datei
+const buildSharePayload = (file, titel, text, istArchiv = false) => {
+    if (istWindowsPlattform() && !istArchiv) return { files: [file] };
+    return { title: titel, text: text, files: [file] };
+};
+
+// Prueft mit derselben Nutzlast, die danach geteilt wird.
+const kannTeilen = (payload) => {
+    try {
+        return typeof navigator.share === 'function'
+            && typeof navigator.canShare === 'function'
+            && navigator.canShare(payload);
+    } catch(e) { return false; }
+};
+
 const buildKundenDateiname = () => {
     // Bewusst OHNE Datum/Nummer/Name: Der Kunde sieht nur einen sauberen Titel.
     // Umlaute vermieden – manche Mail-Clients zerlegen sie im Dateinamen.
@@ -12336,6 +12414,11 @@ const handleFinishOfferClick = () => {
                 archiveSentRef.current = false; // neuer Vorgang → Archiv darf wieder feuern
                 sharedMsisdnRef.current = ''; // Rufnummer zurücksetzen
                 sharedKundeRef.current = '';  // v57: Kundenname zurücksetzen (neuer Vorgang)
+                // v53f: Vorab-PDF verwerfen. Hier startet die Fertigstellung neu –
+                // ein evtl. noch gecachtes PDF koennte aus einem frueheren
+                // Anlauf stammen und den inzwischen geaenderten Stand nicht
+                // enthalten. Das ReferralModal rendert dann sauber neu.
+                try { referralPdfRef.current = null; setReferralPdfBereit(false); setReferralStep1Done(false); } catch(e) {}
 
                 // v48.1: Nach Fertigstellen (egal ob Abschluss oder Angebot) das ggf. geladene
                 // Angebot aus dem lokalen Speicher entfernen – es ist fertig bearbeitet (+ als PDF
@@ -12559,7 +12642,7 @@ const handleFinishOfferClick = () => {
                 }
             };
 
-            const handleClearAll = () => { try { offerValidityOverrideRef.current = ''; } catch(e) {} setDrawnStrokes({ main: [], email: [], beratungs_id: [], provider: [], notes: [], skip_reason: [], sit_Kundenname: [], sit_Rufnummer: [], sit_Anbieter: [], sit_Hardware: [], sit_Nutzung: [], sit_Haushalt: [], sit_WeitereProdukte: [], sit_Fernsehen: [], sit_WiFi: [], sit_Gesamtkosten: [], offer1: [], offer2: [], offer3: [], cost_einmalig: [], cost_monatlich1: [], cost_monatlich2: [], cost_smartphone: [], agent_name: [], date_field: [], offer_valid_until: [] }); setTextData({ AgentName: '', DateValue: '', OfferValidUntil: '', offer1: '', offer2: '', offer3: '', Kundenname: '', Rufnummer: '', Anbieter: '', Hardware: '', Nutzung: '', Haushalt: '', 'Weitere Produkte': '', Fernsehen: '', WiFi: '', Gesamtkosten: '' }); setCustomerType(""); setSegment(""); setProviderSelect(""); setCustomProvider(""); setIsCustomProvider(false); setWlanRecommendation(''); setSpeedRecommendation(''); setEmailText(''); setBeratungsId(''); setSkipReason(''); setSkipReasonMode('keyboard'); setCostState({ mobile: '', landline: '', tv: '' }); setOfferData(initialOfferData); setPackagePrices({ offer1:{einmalig:'',monatlich:''}, offer2:{einmalig:'',monatlich:''}, offer3:{einmalig:'',monatlich:''} }); setCanvasStatus({ offer1: 'neutral', offer2: 'neutral', offer3: 'neutral' }); setCustomerSignature(null); setCanvasImages({ offer1: null, offer2: null, offer3: null }); setImageTransform({ offer1: { x: 0, y: 0, scale: 1.0, rotation: 0 }, offer2: { x: 0, y: 0, scale: 1.0, rotation: 0 }, offer3: { x: 0, y: 0, scale: 1.0, rotation: 0 } }); setRedrawCounter(r => r + 1); try{clearAutosave();}catch(e){} try{setShowRestoreToast(false);}catch(e){} triggerToast('Alle Daten gelöscht und Ansicht zurückgesetzt.'); };
+            const handleClearAll = () => { try { offerValidityOverrideRef.current = ''; } catch(e) {} setDrawnStrokes({ main: [], email: [], beratungs_id: [], provider: [], notes: [], skip_reason: [], sit_Kundenname: [], sit_Rufnummer: [], sit_Anbieter: [], sit_Hardware: [], sit_Nutzung: [], sit_Haushalt: [], sit_WeitereProdukte: [], sit_Fernsehen: [], sit_WiFi: [], sit_Gesamtkosten: [], offer1: [], offer2: [], offer3: [], cost_einmalig: [], cost_monatlich1: [], cost_monatlich2: [], cost_smartphone: [], agent_name: [], date_field: [], offer_valid_until: [] }); setTextData({ AgentName: '', DateValue: '', OfferValidUntil: '', offer1: '', offer2: '', offer3: '', Kundenname: '', Rufnummer: '', Anbieter: '', Hardware: '', Nutzung: '', Haushalt: '', 'Weitere Produkte': '', Fernsehen: '', WiFi: '', Gesamtkosten: '' }); setCustomerType(""); setSegment(""); setProviderSelect(""); setCustomProvider(""); setIsCustomProvider(false); setWlanRecommendation(''); setSpeedRecommendation(''); setEmailText(''); setBeratungsId(''); setSkipReason(''); setSkipReasonMode('keyboard'); setCostState({ mobile: '', landline: '', tv: '' }); setOfferData(initialOfferData); setPackagePrices({ offer1:{einmalig:'',monatlich:''}, offer2:{einmalig:'',monatlich:''}, offer3:{einmalig:'',monatlich:''} }); setCanvasStatus({ offer1: 'neutral', offer2: 'neutral', offer3: 'neutral' }); setCustomerSignature(null); setCanvasImages({ offer1: null, offer2: null, offer3: null }); setImageTransform({ offer1: { x: 0, y: 0, scale: 1.0, rotation: 0 }, offer2: { x: 0, y: 0, scale: 1.0, rotation: 0 }, offer3: { x: 0, y: 0, scale: 1.0, rotation: 0 } }); setRedrawCounter(r => r + 1); try{clearAutosave();}catch(e){} try{setShowRestoreToast(false);}catch(e){} try{ referralPdfRef.current = null; setReferralPdfBereit(false); setReferralStep1Done(false); }catch(e){} /* v53f: Vorab-PDF verwerfen – neuer Kunde, neues Dokument */ triggerToast('Alle Daten gelöscht und Ansicht zurückgesetzt.'); };
 
             const Toast = ({ message }) => { if (!message) return null; return (<div className="print-hide-toast fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 text-white px-4 py-2 rounded-xl shadow-lg border border-slate-700 animate-in fade-in duration-300"><div className="flex items-center gap-2"><Icon d={ICONS.Clipboard} size={16} className="text-green-400"/><span className="text-sm font-medium">{message}</span></div></div>); };
 
@@ -16462,19 +16545,23 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
     if (_istTablet) try {
         let file = null;
         try { file = new File([blob], dateiname, { type: 'application/pdf' }); } catch(e) { file = null; }
-        const canShareFile = file && navigator.canShare && navigator.canShare({ files: [file] });
-        if (canShareFile && typeof navigator.share === 'function') {
-            try {
-                await navigator.share({
-                    files: [file],
+        // v53g: Nutzlast VORAB bauen und mit GENAU dieser pruefen.
+        // Hier bewusst MIT title/text: Dieser Zweig laeuft nur auf Tablets,
+        // wo Mail/Outlook den Titel als Betreff uebernehmen – und der Betreff
+        // ist fuer die Power-Automate-Sortierung entscheidend.
+        const __archivPayload = file ? {
+            files: [file],
                     // Mail/Outlook übernimmt idealerweise `title` als Betreff.
                     // ABER: Outlook Android/iOS setzt teilweise stattdessen den
                     // DATEINAMEN ein. Deshalb beginnt der Dateiname mit PENCIL_,
                     // damit der Trigger-Filter "Betreff enthält PENCIL" auch dann greift.
-                    title: betreff,
-                    // Betreff bewusst als ERSTE Zeile – einige Clients übernehmen sie.
-                    text: `${betreff}\n\nArchiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern.`
-                });
+            title: betreff,
+            // Betreff bewusst als ERSTE Zeile – einige Clients übernehmen sie.
+            text: `${betreff}\n\nArchiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern.`
+        } : null;
+        if (__archivPayload && kannTeilen(__archivPayload)) {
+            try {
+                await navigator.share(__archivPayload);
                 // Erfolgreich direkt geteilt → kein Fenster nötig
                 try { triggerToast('„Mail/Outlook" wählen → ' + ARCHIV_EMAIL + ' → senden. PDF ist angehängt.'); } catch(e){}
                 return;
@@ -16499,7 +16586,8 @@ const dispatchArchiveMail = async (blob, dateiname, betreff, preOpenedTab) => {
             title: '📨 Angebot ins Archiv senden',
             subtitle: 'Jetzt teilen → „Mail" oder „Outlook" wählen → an ' + ARCHIV_EMAIL + ' senden.\nBetreff bitte NICHT ändern.',
             shareText: `Archiv an ${ARCHIV_EMAIL} senden.\nBetreff bitte NICHT ändern:\n${betreff}`,
-            hideOpenTab: true
+            hideOpenTab: true,
+            istArchiv: true   // v53g: Betreff ist hier PFLICHT (Power-Automate-Sortierung)
             // v53: KEIN archiveMode mehr.
             // Der schaltete im Fenster zusätzlich einen Betreff-Kasten,
             // "Betreff kopieren" und "Outlook mit fertigem Betreff öffnen" ein.
@@ -16983,10 +17071,6 @@ const resumeParkedArchive = async (entry, rufValue) => {
             // bewusst NICHT beim Vorab-Rendern, sondern erst beim echten Klick –
             // sonst zählt jedes Öffnen des Dialogs als Angebot.
             // ══════════════════════════════════════════════════════════════════
-            const referralPdfRef = useRef(null);
-            const [referralPdfBereit, setReferralPdfBereit] = useState(false);
-            const [referralStep1Done, setReferralStep1Done] = useState(false);
-
             useEffect(() => {
                 // v53b: Vorbereiten für BEIDE Fenster – auch das
                 // "Wie möchten Sie fortfahren?"-Fenster (Angebot-Pfad) braucht
@@ -16994,9 +17078,15 @@ const resumeParkedArchive = async (entry, rufValue) => {
                 // Zwischenfenster.
                 const anyOpen = showReferralModal || showFinishTypeModal;
                 if (!anyOpen) {
-                    referralPdfRef.current = null;
-                    setReferralPdfBereit(false);
-                    setReferralStep1Done(false);
+                    // v53f: NICHT den Cache leeren!
+                    // Beim Klick auf den PDF-Button schliesst zuerst das
+                    // FinishTypeModal; das ReferralModal geht erst ~300 ms
+                    // spaeter auf. In dieser Luecke ist kein Fenster offen –
+                    // ein Reset hier warf das fertige PDF weg und liess es ein
+                    // ZWEITES Mal rendern (mehrere Sekunden CPU auf dem Tablet,
+                    // waehrend der Verkaeufer schon teilen will).
+                    // Der Cache wird stattdessen beim Start eines neuen
+                    // Vorgangs geleert (handleFinishTypeSelection / Reset).
                     return;
                 }
                 // Läuft schon oder ist fertig → nichts doppelt starten
@@ -17067,8 +17157,9 @@ const resumeParkedArchive = async (entry, rufValue) => {
 
                 // DIREKT teilen – die Geste (Klick bzw. „Weiter" der Namensabfrage) ist frisch
                 try {
-                    if (navigator.canShare && navigator.canShare({ files: [kundenFile] }) && typeof navigator.share === 'function') {
-                        await navigator.share({ title: KUNDEN_SHARE_BETREFF, text: buildKundenNachricht(), files: [kundenFile] });
+                    const __payload = buildSharePayload(kundenFile, KUNDEN_SHARE_BETREFF, buildKundenNachricht());
+                    if (kannTeilen(__payload)) {
+                        await navigator.share(__payload);
                         if (__erstUebergabe) trackOutputAction('digital');
                         setReferralStep1Done(true);
                         triggerToast('✅ PDF geteilt.');
@@ -17153,8 +17244,9 @@ const resumeParkedArchive = async (entry, rufValue) => {
                     // (Klick bzw. „Weiter" der Namensabfrage) ist noch frisch.
                     // Das Zwischenfenster kommt nur noch als Notnagel.
                     try {
-                        if (navigator.canShare && navigator.canShare({ files: [kundenFile] }) && typeof navigator.share === 'function') {
-                            await navigator.share({ title: KUNDEN_SHARE_BETREFF, text: buildKundenNachricht(), files: [kundenFile] });
+                        const __payload = buildSharePayload(kundenFile, KUNDEN_SHARE_BETREFF, buildKundenNachricht());
+                        if (kannTeilen(__payload)) {
+                            await navigator.share(__payload);
                             trackOutputAction('digital');
                             setReferralStep1Done(true); // ReferralModal startet mit erledigtem Schritt 1
                             triggerToast('✅ PDF geteilt.');
@@ -17212,9 +17304,10 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                     setPdfShareReady(null);
                                     trackOutputAction('digital'); // v48.2: digital geteilt
                                     const after = () => setTimeout(() => setShowReferralModal(true), 300);
-                                    if (navigator.canShare && navigator.canShare({ files: [f] })) {
+                                    const __payload = buildSharePayload(f, KUNDEN_SHARE_BETREFF, buildKundenNachricht());
+                                    if (kannTeilen(__payload)) {
                                         // WICHTIG: share() synchron im Tap aufrufen → iOS zeigt den Teilen-Dialog sicher
-                                        navigator.share({ title: KUNDEN_SHARE_BETREFF, text: buildKundenNachricht(), files: [f] })
+                                        navigator.share(__payload)
                                             .then(() => { triggerToast('✅ PDF geteilt.'); try { setReferralStep1Done(true); } catch(e){} after(); })
                                             .catch(() => {
                                                 try { const url = URL.createObjectURL(f); window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 120000); } catch(e) {}
@@ -17263,8 +17356,22 @@ const resumeParkedArchive = async (entry, rufValue) => {
                        step1Done={referralStep1Done}
                        pdfBereit={referralPdfBereit}
                        istAbschluss={!!customerSignature}
+                       archivLaeuft={archivLaeuft}
                        onFinish={() => {
-                        setShowReferralModal(false);
+                        // ══════════════════════════════════════════════════════════
+                        // v53h: FENSTER BLEIBT OFFEN BIS ZUM NEUSTART
+                        // ──────────────────────────────────────────────────────────
+                        // Vorher schloss das Fenster SOFORT und der Neustart kam
+                        // erst spaeter (visibilitychange oder 60-Sekunden-Notbremse).
+                        // In der Zwischenzeit stand die App voll bedienbar da – der
+                        // Verkaeufer konnte zeichnen oder die PDF verschieben, und
+                        // mittendrin startete sie ploetzlich neu.
+                        //
+                        // Jetzt: Das Fenster bleibt stehen und zeigt "Wird
+                        // archiviert…". Erst wenn der Teilen-Vorgang durch ist,
+                        // wird neu gestartet. Solange ist nichts bedienbar.
+                        // ══════════════════════════════════════════════════════════
+                        setArchivLaeuft(true);
                         const doReload = () => {
                             try { handleClearAll(); } catch(e) {}
                             try { clearAutosave(); } catch(e) {}
@@ -17275,21 +17382,34 @@ const resumeParkedArchive = async (entry, rufValue) => {
                             const _typ = customerSignature ? 'abschluss' : 'angebot';
                             const _ask = (_typ === 'abschluss');
                             if (_typ === 'abschluss' && loadedOfferId) { try { cloudDeleteOffer(loadedOfferId); } catch(e){} }
-                            // Archiv anstoßen (Teilen-Dialog). NICHT awaiten – sonst hängt Android.
-                            try { sendToArchive(_typ, { askForNumber: _ask }); } catch(e) {}
-                            // Sicherheits-Reload nach 60s, falls der Nutzer den Teilen-Dialog
-                            // gar nicht mehr schließt. Normal lädt visibilitychange früher neu.
+
                             let _done = false;
-                            const _finish = () => { if (_done) return; _done = true; doReload(); };
+                            const _finish = () => {
+                                if (_done) return; _done = true;
+                                try { document.removeEventListener('visibilitychange', _onVis); } catch(e) {}
+                                try { clearTimeout(_notbremse); } catch(e) {}
+                                doReload();
+                            };
+                            // Rueckkehr aus dem Teilen-Menue (App war im Hintergrund)
                             const _onVis = () => {
                                 if (document.visibilityState === 'visible') {
-                                    document.removeEventListener('visibilitychange', _onVis);
-                                    // kurz warten, damit die App sauber zurück ist, dann neu laden
+                                    try { document.removeEventListener('visibilitychange', _onVis); } catch(e) {}
                                     setTimeout(_finish, 800);
                                 }
                             };
                             document.addEventListener('visibilitychange', _onVis);
-                            setTimeout(_finish, 60000);
+                            // Notbremse, falls der Nutzer gar nichts mehr tut
+                            const _notbremse = setTimeout(_finish, 60000);
+
+                            // Archiv anstoßen. NICHT awaiten – auf Android blockiert
+                            // das sonst. Wenn der Teilen-Vorgang aber sauber
+                            // zurueckkommt, startet .then() direkt neu, ohne auf
+                            // visibilitychange zu warten.
+                            try {
+                                Promise.resolve(sendToArchive(_typ, { askForNumber: _ask }))
+                                    .then(() => { setTimeout(_finish, 600); })
+                                    .catch(() => { setTimeout(_finish, 600); });
+                            } catch(e) { setTimeout(_finish, 600); }
                         } else {
                             setTimeout(doReload, 300);
                         }
@@ -17659,8 +17779,11 @@ const resumeParkedArchive = async (entry, rufValue) => {
                                             setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 120000);
                                         } catch(e) {}
                                     };
-                                    if (navigator.share && navigator.canShare && navigator.canShare({ files: [s.file] })) {
-                                        navigator.share({ title: s.shareSubject || buildShareSubject(s.file.name), text: s.shareText, files: [s.file] })
+                                    // v53g: istArchiv aus dem Fenster-Zustand – beim Archivieren
+                                    // darf der Betreff NIE wegfallen, sonst sortiert der Flow nicht.
+                                    const __payload = buildSharePayload(s.file, s.shareSubject || buildShareSubject(s.file.name), s.shareText, !!s.istArchiv);
+                                    if (kannTeilen(__payload)) {
+                                        navigator.share(__payload)
                                             .then(() => { try { triggerToast('✅ PDF geteilt.'); } catch(e){} done(true); })
                                             .catch((err) => {
                                                 if (err && err.name === 'AbortError') { done(false); return; } // Nutzer hat abgebrochen
